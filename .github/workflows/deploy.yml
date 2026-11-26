@@ -1,0 +1,49 @@
+# 当せん番号の自動取り込み と アプリの公開（GitHub Pages）
+# - 抽せん日（月・木・金）の夜 19:00〜23:30 に30分おき＋翌朝7:00：公式CSVから新しい回を取り込み、変化があれば保存して公開しなおす
+# - main にコードが入ったとき：テストして公開
+name: 更新と公開
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0,30 10-14 * * 1,4,5'  # 日本時間 19:00〜23:30（月・木・金）
+    - cron: '0 22 * * 1,4,5'        # 日本時間 翌朝 7:00
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: 当せん番号を取り込む（定期実行・手動実行のとき）
+        if: github.event_name != 'push'
+        run: node tools/update-data.mjs
+      - name: テスト
+        run: node tools/test.mjs
+      - name: 変化があれば保存
+        if: github.event_name != 'push'
+        run: |
+          git config user.name "lotojinja-bot"
+          git config user.email "lotojinja-bot@users.noreply.github.com"
+          git add src/data
+          if git diff --cached --quiet; then echo "新しい回はありません"; else git commit -m "当せん番号を更新" && git push; fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: src }
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

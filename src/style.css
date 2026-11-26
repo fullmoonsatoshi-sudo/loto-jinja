@@ -1,0 +1,194 @@
+/* 当たれ！ロト神社 — 生成りの地に、基本色「朱」＋アクセント「金」＋灰色
+   ルール：本文16px以上／余白は8の倍数／押せるものは高さ44px以上 */
+:root {
+  --paper: #FBF6EE;
+  --card: #FFFFFF;
+  --ink: #2A2320;      /* 灰色（濃） */
+  --ink-soft: #5F5650; /* 灰色（中） */
+  --line: #E6DDD2;     /* 灰色（淡） */
+  --shu: #B8231C;      /* 基本色：朱 */
+  --shu-soft: #F7E3DF;
+  --gold: #8A6A10;     /* アクセント：金（文字に使えるよう濃いめ） */
+  --gold-bright: #C9A227;
+  --gold-soft: #F6ECD3;
+  --radius: 16px;
+  --tab-h: 64px;
+  font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { min-height: 100dvh; padding-bottom: calc(var(--tab-h) + env(safe-area-inset-bottom)); font-size: 16px; line-height: 1.6; }
+button { font: inherit; color: inherit; cursor: pointer; }
+h1, h2, h3, p { margin: 0; }
+h1, h2, h3 { line-height: 1.3; }
+
+/* ---------- 共通の小物 ---------- */
+.m0 { margin: 0 !important; }
+.mt8 { margin-top: 8px; }
+.mt16 { margin-top: 16px; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.row.nowrap { flex-wrap: nowrap; }
+.row.end { justify-content: flex-end; }
+.between { justify-content: space-between; }
+.stack { display: grid; gap: 8px; }
+.muted { color: var(--ink-soft); }
+.note { color: var(--ink-soft); font-size: 16px; margin-top: 8px; }
+
+/* ---------- ヘッダー ---------- */
+.top { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 16px; padding-top: calc(8px + env(safe-area-inset-top)); background: var(--shu); color: #fff; }
+.brand { display: flex; align-items: center; gap: 8px; }
+.brand h1 { font-size: 20px; letter-spacing: .06em; }
+.torii { width: 24px; height: 24px; position: relative; display: inline-block; }
+.torii::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 6px; background: #fff; border-radius: 3px 3px 0 0; }
+.torii::after { content: ""; position: absolute; left: 4px; right: 4px; top: 8px; bottom: 0;
+  border-left: 4px solid #fff; border-right: 4px solid #fff; border-top: 3px solid #fff; }
+.icon-btn { background: rgba(255,255,255,.16); border: 0; border-radius: 999px; padding: 0 16px; min-height: 44px; color: #fff; font-size: 16px; }
+
+/* ---------- くじ切り替え ---------- */
+.game-switch { display: flex; margin: 16px 16px 0; background: var(--line); border-radius: 999px; padding: 4px; }
+.game-switch button { flex: 1; border: 0; background: transparent; border-radius: 999px; min-height: 44px; font-weight: 700; color: var(--ink-soft); }
+.game-switch button[aria-selected="true"] { background: var(--card); color: var(--shu); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+
+main { max-width: 720px; margin: 0 auto; padding: 16px; outline: none; display: grid; gap: 16px; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+.card h2 { font-size: 20px; margin-bottom: 8px; }
+.card h3 { font-size: 16px; margin: 16px 0 8px; }
+
+/* ---------- お知らせ ---------- */
+.notice { background: var(--gold-soft); border: 1px solid #E8D6A6; border-radius: 16px; padding: 8px 16px; }
+.notice.strong { border: 2px solid var(--shu); background: var(--shu-soft); color: var(--ink); font-weight: 700; }
+
+/* ---------- キャラと吹き出し ---------- */
+.shrine { display: grid; grid-template-columns: 136px 1fr; gap: 8px; align-items: end;
+  background: linear-gradient(180deg, var(--gold-soft), var(--card) 70%); }
+.chara { width: 136px; height: 152px; object-fit: contain; object-position: bottom; display: block; }
+.chara.pray { animation: bob 1.2s ease-in-out infinite; }
+.chara.joy { animation: hop .6s ease-out 3; }
+@keyframes bob { 50% { transform: translateY(-4px); } }
+@keyframes hop { 40% { transform: translateY(-16px); } }
+.bubble { position: relative; background: #fff; border: 2px solid var(--ink); border-radius: 16px; padding: 8px 16px; margin-bottom: 32px; font-size: 16px; }
+.bubble::after { content: ""; position: absolute; left: -10px; bottom: 16px; width: 16px; height: 16px; background: #fff;
+  border-left: 2px solid var(--ink); border-bottom: 2px solid var(--ink); transform: rotate(45deg); }
+.bubble .who { display: block; font-size: 16px; color: var(--shu); font-weight: 700; }
+
+/* ---------- 数字の玉 ---------- */
+.balls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.bonus-group { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.ball { width: 40px; height: 40px; border-radius: 50%; display: inline-grid; place-items: center; font-weight: 800; font-size: 16px;
+  background: var(--card); border: 2px solid var(--shu); color: var(--shu); font-variant-numeric: tabular-nums; }
+.ball.bonus { border-color: var(--gold-bright); color: var(--gold); border-style: dashed; }
+.ball.hit { background: var(--shu); color: #fff; }
+.ball.sm { width: 32px; height: 32px; font-size: 16px; }
+.plus { color: var(--ink-soft); font-size: 16px; }
+
+.result-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.result-head .no { font-size: 24px; font-weight: 800; }
+.carry { margin-top: 8px; }
+.carry b { color: var(--shu); }
+table.prize { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 16px; font-variant-numeric: tabular-nums; }
+table.prize th, table.prize td { padding: 8px 4px; border-bottom: 1px solid var(--line); text-align: right; }
+table.prize th:first-child, table.prize td:first-child { text-align: left; }
+
+.countdown { display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--shu-soft); border-color: #EFC9C3; }
+.countdown > div:first-child { min-width: 0; }
+.countdown .big { font-size: 20px; font-weight: 800; color: var(--shu); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---------- ボタン ---------- */
+.btn { border: 0; border-radius: 16px; min-height: 48px; padding: 0 16px; font-weight: 700; background: var(--shu); color: #fff; width: 100%; font-size: 16px; }
+.btn:active { transform: translateY(1px); }
+.btn.sub { background: var(--card); color: var(--shu); border: 2px solid var(--shu); }
+.btn.ghost { background: transparent; color: var(--ink-soft); border: 1px solid var(--line); width: auto; min-height: 48px; white-space: nowrap; flex: none; }
+.btn.small { width: auto; min-height: 44px; padding: 0 16px; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+
+/* ---------- 流派 ---------- */
+.schools { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.school { text-align: left; border: 2px solid var(--line); background: var(--card); border-radius: 16px; padding: 8px; min-height: 96px; }
+.school b { display: block; font-size: 16px; }
+.school span { font-size: 16px; color: var(--ink-soft); line-height: 1.45; display: block; }
+.school[aria-pressed="true"] { border-color: var(--shu); background: var(--shu-soft); }
+.stepper { display: flex; align-items: center; gap: 8px; }
+.stepper button { width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); font-size: 20px; }
+.stepper output { min-width: 3em; text-align: center; font-weight: 800; font-size: 20px; }
+label.field { display: grid; gap: 8px; font-size: 16px; }
+input[type="date"], input[type="text"], select { font: inherit; min-height: 48px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; background: #fff; width: 100%; }
+.disclaimer { margin-top: 16px; color: var(--ink-soft); border: 1px dashed var(--line); border-radius: 16px; padding: 8px 16px; }
+
+.ticket { border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+.ticket + .ticket { margin-top: 8px; }
+.ticket .balls { flex-wrap: nowrap; gap: 4px; }
+#oracleResult { scroll-margin-top: 80px; }
+.meter { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 8px 0 0; }
+.meter > i { display: block; height: 100%; background: var(--gold-bright); border-radius: 999px; }
+.meter.good > i { background: var(--shu); }
+.meter.bad > i { background: var(--ink-soft); }
+.tag { display: inline-block; font-size: 16px; font-weight: 700; padding: 0 8px; border-radius: 999px; background: var(--gold-soft); color: var(--gold); }
+.tag.good { background: var(--shu-soft); color: var(--shu); }
+.tag.bad { background: var(--line); color: var(--ink); }
+
+/* ---------- 傾向グラフ ---------- */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.seg button { border: 0; background: var(--card); padding: 0 16px; min-height: 44px; font-size: 16px; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.chart { display: grid; gap: 2px; align-items: end; height: 144px; margin-top: 16px; }
+.chart .bar { background: #CFC5BA; border-radius: 3px 3px 0 0; min-height: 2px; }
+.chart .bar.hi { background: var(--shu); }
+.chart-x { display: grid; gap: 2px; font-size: 12px; color: var(--ink-soft); text-align: center; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.rank { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.rank h3 { margin-top: 0; }
+.rank ol { margin: 0; padding-left: 24px; }
+
+/* ---------- 数字パッド ---------- */
+.pad { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 16px 0; }
+.pad button { min-height: 48px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; }
+.pad button[aria-pressed="true"] { background: var(--shu); color: #fff; border-color: var(--shu); }
+.entry { border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+.entry + .entry { margin-top: 8px; }
+.entry .res { font-weight: 800; }
+.entry .res.win { color: var(--shu); }
+
+/* ---------- 結果一覧 ---------- */
+.hist { list-style: none; margin: 8px 0 0; padding: 0; }
+.hist li { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.hist .meta { display: flex; justify-content: space-between; color: var(--ink-soft); margin-bottom: 8px; }
+.hist .meta b { color: var(--ink); }
+
+/* ---------- 下のタブ ---------- */
+.tabs { position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; display: grid; grid-template-columns: repeat(4, 1fr);
+  height: calc(var(--tab-h) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
+  background: var(--card); border-top: 1px solid var(--line); }
+.tabs button { border: 0; background: transparent; font-size: 14px; color: var(--ink-soft); display: grid; place-items: center; align-content: center; }
+.tabs .ti { font-size: 20px; line-height: 1.1; }
+.tabs button[aria-current="page"] { color: var(--shu); font-weight: 700; }
+
+/* ---------- ダイアログ ---------- */
+dialog { border: 0; border-radius: 24px; padding: 0; width: min(92vw, 560px); max-height: 88dvh; color: var(--ink); }
+dialog::backdrop { background: rgba(30, 20, 15, .45); }
+.dlg { padding: 24px; }
+.dlg h2 { font-size: 20px; margin-bottom: 16px; }
+.dlg p { margin-bottom: 8px; }
+.dlg .btn { margin-top: 16px; }
+.dlg .row .btn { margin-top: 0; }
+.chars { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.char-opt { border: 2px solid var(--line); border-radius: 16px; background: var(--card); padding: 8px; text-align: center; }
+.char-opt img { width: 100%; height: 120px; object-fit: contain; }
+.char-opt b { display: block; font-size: 16px; }
+.char-opt span { font-size: 16px; color: var(--ink-soft); }
+.char-opt[aria-pressed="true"] { border-color: var(--shu); background: var(--shu-soft); }
+.dlg ul { padding-left: 24px; margin: 8px 0; }
+
+#toast { position: fixed; left: 50%; bottom: calc(var(--tab-h) + 16px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(16px);
+  background: var(--ink); color: #fff; padding: 8px 16px; border-radius: 999px; font-size: 16px; opacity: 0; pointer-events: none; transition: .25s; z-index: 30; max-width: 90vw; }
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+@media (min-width: 560px) {
+  .shrine { grid-template-columns: 168px 1fr; }
+  .chara { width: 168px; height: 192px; }
+  .schools { grid-template-columns: repeat(4, 1fr); }
+  .pad { grid-template-columns: repeat(8, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .chara { animation: none !important; } #toast { transition: none; } }

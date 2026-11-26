@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#B8231C">
+<meta name="description" content="ロト6・ロト7の当せん番号速報、マイ番号の自動当選チェック、巫女の神託（お楽しみ予想。当せん確率は上がりません）">
+<title>当たれ！ロト神社</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="torii" aria-hidden="true"></span>
+    <h1>当たれ！ロト神社</h1>
+  </div>
+  <button class="icon-btn" id="openSettings" type="button" aria-label="設定">設定</button>
+</header>
+
+<div class="game-switch" role="tablist" aria-label="くじの種類">
+  <button type="button" role="tab" data-game="loto6" aria-selected="true">ロト6</button>
+  <button type="button" role="tab" data-game="loto7" aria-selected="false">ロト7</button>
+</div>
+
+<main id="view" tabindex="-1"></main>
+
+<nav class="tabs" aria-label="メニュー">
+  <button type="button" data-tab="home" aria-current="page"><span class="ti">⛩</span>ホーム</button>
+  <button type="button" data-tab="oracle"><span class="ti">✦</span>神託</button>
+  <button type="button" data-tab="mine"><span class="ti">✎</span>マイ番号</button>
+  <button type="button" data-tab="history"><span class="ti">☰</span>結果一覧</button>
+</nav>
+
+<dialog id="settings" aria-labelledby="settingsTitle"></dialog>
+<dialog id="gate" aria-labelledby="gateTitle"></dialog>
+<dialog id="confirm"></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
