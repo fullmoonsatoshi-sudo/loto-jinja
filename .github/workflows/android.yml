@@ -4,7 +4,7 @@ name: Androidアプリを作る
 on:
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write  # 署名前の .aab をリリースの添付ファイルとして置くため
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -25,3 +25,12 @@ jobs:
           name: loto-jinja-aab-unsigned
           path: android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
+      - name: 署名前の .aab をリリースに置く（署名用に取り出すため。鍵は含まない）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver=$(node -p "const c=require('./tools/android/app.json'); c.versionName+'-'+c.versionCode")
+          tag="android-unsigned-$ver"
+          cp android/app/build/outputs/bundle/release/*.aab "loto-jinja-$ver-unsigned.aab"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --target "$GITHUB_SHA" --title "Android 署名前ビルド $ver" --notes "署名前の .aab（Play には署名後のものを上げる）"
+          gh release upload "$tag" "loto-jinja-$ver-unsigned.aab" --clobber
