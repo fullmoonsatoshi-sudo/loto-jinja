@@ -24,6 +24,8 @@ if (!d) { console.error(`第${off.n}回はまだ取り込まれていません�
 const key = x => JSON.stringify([x.n, x.date, x.main, x.bonus, x.winners, x.prizes]);
 if (key(d) !== key(off)) { console.error(`第${off.n}回：公式CSVと取り込み済みの内容が一致しません。書き足しません。\n公式 ${key(off)}\n手元 ${key(d)}`); process.exit(4); }
 if (d.carryover === off.carryover) { console.log(`第${off.n}回：キャリーオーバーは記録済み（${off.carryover}円）`); process.exit(0); }
+// すでに記録されている額と食い違うときは、読み間違いの可能性があるので上書きしない
+if (d.carryover != null) { console.error(`第${off.n}回：記録済みの額（${d.carryover}円）と読み取った額（${off.carryover}円）が違います。上書きしません。`); process.exit(4); }
 d.carryover = off.carryover;
 json.updated = new Date().toISOString();
 fs.writeFileSync(dataFile, JSON.stringify(json));

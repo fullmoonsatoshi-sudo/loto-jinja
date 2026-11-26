@@ -203,6 +203,12 @@ await (async () => {
   t('書き足し：壊れたCSVは書かずに5', () => { assert.equal(run('こわれた'), 5); assert.equal(read(), undefined); });
   t('書き足し：一致すれば書いて0、2回目も0で変えない', () => { assert.equal(run(ok), 0); assert.equal(read(), 0); assert.equal(run(ok), 0); assert.equal(read(), 0); });
   t('書き足し：まだ無い回は3', () => { assert.equal(run(ok.replace('第2158回', '第2999回')), 3); });
+  t('書き足し：額が空・切れている・文字なら書かずに4（記録済みの額も変えない）', () => {
+    for (const bad of ['キャリーオーバー,', 'キャリーオーバー,2334', 'キャリーオーバー,該当なし', 'キャリーオーバー,12x34円']) {
+      assert.equal(run(ok.replace(/キャリーオーバー,0円/, bad)), 4, bad); assert.equal(read(), 0, bad);
+    }
+  });
+  t('書き足し：記録済みの額と違う額は上書きせずに4', () => { assert.equal(run(ok.replace('キャリーオーバー,0円', 'キャリーオーバー,2334円')), 4); assert.equal(read(), 0); });
   fs.rmSync(dir, { recursive: true, force: true });
 }
 

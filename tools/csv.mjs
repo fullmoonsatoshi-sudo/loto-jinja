@@ -49,8 +49,10 @@ export function parseCsv(kind, text) {
     if (!row) throw new Error(`${t}等の行が見つかりません`);
     winners.push(num(row[1])); prizes.push(num(row[2]));
   }
+  // キャリーオーバーは「数字＋円」の形だけを受け付ける（空・切れている・文字などは読めなかったとして null）
   const coLine = lines.find(l => l[0] === 'キャリーオーバー');
-  const carryover = coLine ? num(coLine[1]) : null;
+  const coMatch = coLine && coLine.length === 2 && coLine[1].match(/^(\d+)円$/);
+  const carryover = coMatch ? Number(coMatch[1]) : null;
 
   const all = [...main, ...bonus];
   if (main.length !== g.pick || bonus.length !== g.bonus || new Set(all).size !== all.length || all.some(x => x < 1 || x > g.max))
