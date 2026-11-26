@@ -148,6 +148,8 @@ function startCountdown(target) {
 
 // ---------- 画面：神託 ----------
 function renderOracle() {
+  // カットインの絵を先に読み込んでおき、最初の振りでちらつかないようにする
+  ['oharai1', 'oharai2'].forEach(e => { const im = new Image(); im.src = imgPath(state.char, e); });
   const o = state.oracle, g = GAMES[state.game], list = draws();
   const birthday = store.get('birthday', '', isDate);
   const schools = Object.entries(SCHOOLS).map(([k, s]) =>
@@ -214,39 +216,55 @@ function playCutin(charId) {
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const c = CHARS[charId];
     const el = document.createElement('div');
-    el.className = 'cutin';
-    el.setAttribute('role', 'status');
+    el.className = 'cutin' + (reduce ? ' still' : '');
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    el.setAttribute('aria-label', `${c.name}がご祈祷しています`);
+    el.tabIndex = -1;
     el.innerHTML = `
       <div class="cutin-band" aria-hidden="true"></div>
-      <div class="cutin-stage">
+      <div class="cutin-stage" aria-hidden="true">
         <img class="cutin-img f1" alt="" src="${imgPath(charId, 'oharai1')}">
         <img class="cutin-img f2" alt="" src="${imgPath(charId, 'oharai2')}">
         <span class="spark s1"></span><span class="spark s2"></span><span class="spark s3"></span><span class="spark s4"></span>
       </div>
       <p class="cutin-text"><b>${c.name}</b><span>${PRAY_WORDS[charId] || 'ご祈祷中…'}</span></p>
       <p class="cutin-skip">タップでとばす</p>`;
-    // 振る絵が無ければ、お祈りの絵を揺らす
-    let fallback = false;
+    // 振る絵が無ければお祈りの絵を揺らす。それも無ければ絵は出さない（壊れた画像の枠を見せない）
+    let stage = 0;
     el.querySelectorAll('.cutin-img').forEach(img => img.addEventListener('error', () => {
-      if (fallback) return; fallback = true;
-      el.classList.add('no-swing');
-      el.querySelectorAll('.cutin-img').forEach(i => { i.onerror = null; i.src = imgPath(charId, 'pray'); });
+      if (stage === 0) {
+        stage = 1; el.classList.add('no-swing');
+        el.querySelectorAll('.cutin-img').forEach(i => { i.src = imgPath(charId, 'pray'); });
+      } else if (stage === 1) {
+        stage = 2; el.querySelectorAll('.cutin-img').forEach(i => { i.style.visibility = 'hidden'; });
+      }
     }));
+    // カットインの間は、後ろの画面をキーボードでも触れないようにする
+    const behind = [...document.querySelectorAll('header.top, .game-switch, main, nav.tabs')];
+    behind.forEach(b => { b.inert = true; });
     document.body.appendChild(el);
-    el.querySelector('p.cutin-text').setAttribute('aria-label', `${c.name}がご祈祷しています`);
+    el.focus({ preventScroll: true });
 
-    // 2枚を交互に切り替えて「振っている」ように見せる
+    // 2枚を交互に切り替えて「振っている」ように見せる（動きを減らす設定では切り替えない）
     let frame = 0;
-    const swing = setInterval(() => { frame ^= 1; el.classList.toggle('alt', frame === 1); }, 170);
+    const swing = reduce ? null : setInterval(() => { frame ^= 1; el.classList.toggle('alt', frame === 1); }, 170);
+    const startedAt = performance.now();
     let done = false;
     const finish = () => {
       if (done) return; done = true;
       clearInterval(swing); clearTimeout(timer);
+      document.removeEventListener('keydown', onKey);
+      behind.forEach(b => { b.inert = false; });
       el.classList.add('out');
       setTimeout(() => { el.remove(); resolve(); }, reduce ? 0 : 380);
     };
-    const timer = setTimeout(finish, reduce ? 700 : 2600);
-    el.addEventListener('click', finish);
+    // 「神託をいただく」の押しすぎ（ダブルタップ）でとばさないよう、出てすぐのタップは無視する
+    const skip = () => { if (performance.now() - startedAt > 700) finish(); };
+    const onKey = e => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); skip(); } };
+    const timer = setTimeout(finish, reduce ? 900 : 2600);
+    el.addEventListener('click', skip);
+    document.addEventListener('keydown', onKey);
     requestAnimationFrame(() => el.classList.add('in'));
   });
 }

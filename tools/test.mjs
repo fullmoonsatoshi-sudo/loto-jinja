@@ -184,4 +184,26 @@ await (async () => {
   t('予備データ：新しい回が無ければ何もしない', () => { assert.ok(!(r instanceof Error), String(r)); assert.equal(r.changed, 0); });
 })();
 
+// --- キャリーオーバー書き足しスクリプト（データのコピーで試す） ---
+{
+  const { execFileSync } = await import('child_process');
+  const os = await import('os'); const path = await import('path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'carry-'));
+  fs.mkdirSync(path.join(dir, 'tools'), { recursive: true }); fs.mkdirSync(path.join(dir, 'src/data'), { recursive: true });
+  for (const f of ['set-carryover.mjs', 'csv.mjs']) fs.copyFileSync(new URL(`./${f}`, import.meta.url), path.join(dir, 'tools', f));
+  const l6 = JSON.parse(fs.readFileSync(new URL('../src/data/loto6.json', import.meta.url)));
+  delete l6.draws.find(d => d.n === 2158).carryover;
+  fs.writeFileSync(path.join(dir, 'src/data/loto6.json'), JSON.stringify(l6));
+  const run = (csvText) => { const f = path.join(dir, 'x.csv'); fs.writeFileSync(f, csvText);
+    try { execFileSync('node', [path.join(dir, 'tools/set-carryover.mjs'), 'loto6', f], { stdio: 'pipe' }); return 0; } catch (e) { return e.status; } };
+  const read = () => JSON.parse(fs.readFileSync(path.join(dir, 'src/data/loto6.json'))).draws.find(d => d.n === 2158).carryover;
+  const ok = fx('A1022158.CSV');
+  t('書き足し：キャリーオーバー行が無いCSVは書かずに4', () => { assert.equal(run(ok.replace(/キャリーオーバー.*\r?\n/, '')), 4); assert.equal(read(), undefined); });
+  t('書き足し：数字が違えば書かずに4', () => { assert.equal(run(ok.replace('05,13', '05,14')), 4); assert.equal(read(), undefined); });
+  t('書き足し：壊れたCSVは書かずに5', () => { assert.equal(run('こわれた'), 5); assert.equal(read(), undefined); });
+  t('書き足し：一致すれば書いて0、2回目も0で変えない', () => { assert.equal(run(ok), 0); assert.equal(read(), 0); assert.equal(run(ok), 0); assert.equal(read(), 0); });
+  t('書き足し：まだ無い回は3', () => { assert.equal(run(ok.replace('第2158回', '第2999回')), 3); });
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 console.log(`\n${n} 件すべて合格`);

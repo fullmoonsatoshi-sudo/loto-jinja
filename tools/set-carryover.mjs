@@ -7,10 +7,15 @@ import { parseCsv } from './csv.mjs';
 
 const [, , kind, file] = process.argv;
 if (!['loto6', 'loto7'].includes(kind) || !file) { console.error('使い方：node tools/set-carryover.mjs <loto6|loto7> <CSVファイル>'); process.exit(2); }
-const bytes = fs.readFileSync(file);
-let text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-if (!text.includes('本数字')) text = new TextDecoder('shift_jis').decode(bytes);
-const off = parseCsv(kind, text);
+// 終了コード：0=書き足した／記録済み、2=使い方の誤り、3=まだ取り込まれていない回、4=公式と一致しない・キャリーオーバー行が無い、5=CSVが読めない
+let off;
+try {
+  const bytes = fs.readFileSync(file);
+  let text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  if (!text.includes('本数字')) text = new TextDecoder('shift_jis').decode(bytes);
+  off = parseCsv(kind, text);
+} catch (e) { console.error(`CSVを読めませんでした：${e.message}`); process.exit(5); }
+if (!Number.isInteger(off.carryover) || off.carryover < 0) { console.error(`第${off.n}回：CSVにキャリーオーバーの行がありません。書き足しません。`); process.exit(4); }
 
 const dataFile = new URL(`../src/data/${kind}.json`, import.meta.url);
 const json = JSON.parse(fs.readFileSync(dataFile));

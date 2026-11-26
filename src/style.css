@@ -187,6 +187,7 @@ dialog::backdrop { background: rgba(30, 20, 15, .45); }
 
 
 /* ---------- ご祈祷のカットイン ---------- */
+.cutin:focus { outline: none; }
 .cutin { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; overflow: hidden; cursor: pointer;
   background: rgba(30, 12, 8, 0); transition: background .25s; }
 .cutin.in { background: rgba(30, 12, 8, .86); }
@@ -197,7 +198,7 @@ dialog::backdrop { background: rgba(30, 20, 15, .45); }
   background: repeating-linear-gradient(100deg, rgba(255,255,255,.10) 0 2px, transparent 2px 28px); animation: speed .4s linear infinite; }
 @keyframes speed { to { background-position: -56px 0; } }
 .cutin.in .cutin-band { transform: translate(0, -50%) skewY(-9deg); }
-.cutin-stage { position: relative; width: min(84vw, 420px); aspect-ratio: 1; transform: translateX(120%); transition: transform .38s .08s cubic-bezier(.2,.9,.2,1.15); }
+.cutin-stage { position: relative; width: min(84vw, 420px, 62vh); aspect-ratio: 1; transform: translateX(120%); transition: transform .38s .08s cubic-bezier(.2,.9,.2,1.15); }
 .cutin.in .cutin-stage { transform: translateX(0); }
 .cutin-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 8px 16px rgba(0,0,0,.35)); }
 .cutin .f2 { opacity: 0; }
@@ -212,18 +213,24 @@ dialog::backdrop { background: rgba(30, 20, 15, .45); }
   background: radial-gradient(circle, #fff 0 20%, var(--gold-bright) 35%, transparent 70%); opacity: 0; animation: twinkle .9s ease-in-out infinite; }
 .s1 { left: 8%; top: 18%; } .s2 { right: 10%; top: 12%; animation-delay: .25s; } .s3 { left: 14%; bottom: 22%; animation-delay: .5s; } .s4 { right: 6%; bottom: 30%; animation-delay: .7s; }
 @keyframes twinkle { 0%, 100% { opacity: 0; transform: scale(.4); } 50% { opacity: 1; transform: scale(1.3); } }
-.cutin-text { position: absolute; left: 0; right: 0; bottom: 18%; text-align: center; color: #fff; font-size: 20px; font-weight: 800;
+.cutin-text { position: absolute; left: 0; right: 0; bottom: max(8%, calc(50% - 31vh - 64px)); text-align: center; color: #fff; font-size: 20px; font-weight: 800;
   text-shadow: 0 2px 0 var(--shu), 0 0 12px rgba(0,0,0,.6); opacity: 0; transform: translateY(16px); transition: .3s .25s; }
 .cutin-text b { display: block; font-size: 16px; color: var(--gold-soft); }
 .cutin.in .cutin-text { opacity: 1; transform: none; }
 .cutin-skip { position: absolute; bottom: calc(16px + env(safe-area-inset-bottom)); left: 0; right: 0; text-align: center; color: rgba(255,255,255,.75); font-size: 14px; }
 .cutin.out { background: rgba(255,255,255,.95); transition: background .2s; }
 .cutin.out .cutin-stage, .cutin.out .cutin-band, .cutin.out .cutin-text { opacity: 0; transition: opacity .2s; }
+.cutin.still .cutin-band, .cutin.still .cutin-stage, .cutin.still .cutin-text { transition: none; }
+.cutin.still .cutin-stage, .cutin.still .spark, .cutin.still .cutin-band::before { animation: none; }
 @media (prefers-reduced-motion: reduce) {
   .cutin-band, .cutin-stage, .cutin-text { transition: none !important; }
   .cutin.in .cutin-stage, .cutin .spark, .cutin-band::before, .cutin.no-swing .f1 { animation: none !important; }
 }
 
+@media (orientation: landscape) and (max-height: 500px) {
+  .cutin-text { bottom: 4%; font-size: 16px; }
+  .cutin-skip { display: none; }
+}
 @media (min-width: 560px) {
   .shrine { grid-template-columns: 168px 1fr; }
   .chara { width: 168px; height: 192px; }

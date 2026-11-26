@@ -2,7 +2,10 @@
 // どのファイルも「通信を優先」し、つながらないときだけ保存しておいたものを使う。
 // こうすると、修正版を公開すれば次に開いたときから必ず新しい画面になる。
 const CACHE = 'lotojinja';
-const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'lotto.js', 'manifest.webmanifest', 'assets/icon-192.png', 'data/loto6.json', 'data/loto7.json'];
+const CHARS = ['miko', 'kannushi', 'kitsune', 'neko'], EXPR = ['normal', 'pray', 'joy', 'sad', 'oharai1', 'oharai2'];
+// キャラの絵も最初に保存しておき、オフラインでもカットインやキャラが出るようにする
+const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'lotto.js', 'manifest.webmanifest', 'assets/icon-192.png', 'data/loto6.json', 'data/loto7.json',
+  ...CHARS.flatMap(c => EXPR.map(e => `assets/characters/${c}/${e}.png`))];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
