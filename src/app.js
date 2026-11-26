@@ -161,7 +161,7 @@ function renderOracle() {
     const k = kaburi(state.game, t, list.at(-1));
     const cls = k.score >= 80 ? 'good' : k.score >= 50 ? '' : 'bad';
     return `<div class="ticket">
-      <div class="row between"><b>${i + 1}口目</b><span class="tag ${cls}">かぶりにくさ ${k.score}点・${k.label}</span></div>
+      <div class="row between"><b>${i + 1}口目</b><span class="tag ${cls}"><span class="nw">かぶりにくさ ${k.score}点</span>・<span class="nw">${k.label}</span></span></div>
       <div class="mt8">${ballsHtml(t, [], { small: true })}</div>
       <div class="meter ${cls}" aria-hidden="true"><i style="width:${k.score}%"></i></div>
       <div class="note">${k.reasons.map(r => '・' + r).join('<br>')}</div>

@@ -21,4 +21,13 @@ if (err) throw new Error(err);
 fs.mkdirSync('android', { recursive: true });
 fs.writeFileSync('android/twa-manifest.json', JSON.stringify(manifest.toJson(), null, 2));
 await new TwaGenerator().createTwaProject('android', manifest, new ConsoleLog('twa'));
+// Google Play の決まり（2026年8月31日〜：新規アプリは API 36 以上が対象）と、使う部品の最低条件（API 24）に合わせる
+const gradle = 'android/app/build.gradle';
+let g = fs.readFileSync(gradle, 'utf8');
+g = g.replace(/minSdkVersion\s+\d+/, 'minSdkVersion 24')
+     .replace(/targetSdkVersion\s+\d+/, 'targetSdkVersion 36')
+     .replace(/compileSdkVersion\s+\d+/, 'compileSdkVersion 36')
+     .replace(/compileSdk\s+\d+/, 'compileSdk 36');
+fs.writeFileSync(gradle, g);
+console.log(g.split('\n').filter(l => /Sdk|com\.android\.tools\.build/.test(l)).join('\n'));
 console.log('作成しました：', cfg.packageId, cfg.versionName, `(${cfg.versionCode})`, manifest.host + manifest.startUrl);
