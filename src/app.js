@@ -189,7 +189,7 @@ function renderOracle() {
         <div class="stepper"><button type="button" data-step="-1" aria-label="口数を減らす">−</button><output id="cnt">${o.count}口</output><button type="button" data-step="1" aria-label="口数を増やす">＋</button></div>
       </div>
       <button class="btn mt16" type="button" id="doOracle" ${o.praying ? 'disabled' : ''}>${o.praying ? 'お祈り中…' : '神託をいただく'}</button>
-      <p class="disclaimer">神託は過去のデータを使ったお楽しみ機能です。抽せんは毎回まったくの偶然で決まるため、当せん確率は上がりません。</p>
+      <p class="disclaimer">神託は過去のデータを使ったお楽しみ機能です。抽せんは毎回まったくの偶然で決まるため、当せん確率は上がりません。<br><a href="privacy.html">プライバシーポリシー</a></p>
     </section>
     ${tickets ? `<section class="card" id="oracleResult"><h2>${g.name}の神託</h2>${tickets}
       <p class="note">「かぶりにくさ」は、誕生日の数字や連番など人が選びがちな形を避けているほど高くなります。当せん確率は変わりませんが、当たったときに賞金を分け合う人が少なくなりやすくなります。</p></section>` : ''}
