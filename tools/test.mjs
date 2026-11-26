@@ -212,4 +212,16 @@ await (async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+await (async () => {
+  // 公式CSVのキャリーオーバーが読めないときは、最新回に何も書かず「更新0件」になる
+  const json = { draws: L6.filter(d => d.n <= 2158).map(d => ({ ...d })) }; delete json.draws.at(-1).carryover;
+  // 公式と同じ Shift_JIS に戻して渡す
+  const sj = new Uint8Array(fxBytes('A1022158.CSV')); const txt = new TextDecoder('shift_jis').decode(sj).replace('キャリーオーバー,0円', 'キャリーオーバー,');
+  const { execFileSync } = await import('child_process');
+  const sjBytes = execFileSync('python3', ['-c', 'import sys;sys.stdout.buffer.write(sys.stdin.read().encode("cp932"))'], { input: txt });
+  const f2 = async url => url.endsWith('A1022158.CSV') ? { ok: true, status: 200, arrayBuffer: async () => sjBytes.buffer.slice(sjBytes.byteOffset, sjBytes.byteOffset + sjBytes.byteLength) } : { ok: false, status: 403 };
+  const r1 = await updateKind('loto6', json, f2); const r2 = await updateKind('loto6', json, f2);
+  t('更新スクリプト：キャリーオーバーが読めなければ書かず、毎回「更新あり」にならない', () => { assert.equal(r1.changed, 0); assert.equal(r2.changed, 0); assert.equal(json.draws.at(-1).carryover, undefined); });
+})();
+
 console.log(`\n${n} 件すべて合格`);

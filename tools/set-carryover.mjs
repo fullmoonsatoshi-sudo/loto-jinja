@@ -15,7 +15,7 @@ try {
   if (!text.includes('本数字')) text = new TextDecoder('shift_jis').decode(bytes);
   off = parseCsv(kind, text);
 } catch (e) { console.error(`CSVを読めませんでした：${e.message}`); process.exit(5); }
-if (!Number.isInteger(off.carryover) || off.carryover < 0) { console.error(`第${off.n}回：CSVにキャリーオーバーの行がありません。書き足しません。`); process.exit(4); }
+if (!Number.isInteger(off.carryover) || off.carryover < 0) { console.error(`第${off.n}回：CSVのキャリーオーバーが無いか、額が読めません（「数字＋円」の形ではない）。書き足しません。`); process.exit(4); }
 
 const dataFile = new URL(`../src/data/${kind}.json`, import.meta.url);
 const json = JSON.parse(fs.readFileSync(dataFile));
