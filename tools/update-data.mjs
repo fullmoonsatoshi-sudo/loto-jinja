@@ -36,6 +36,7 @@ export async function updateKind(kind, json, fetchImpl = fetch) {
   if (JSON.stringify(check.main) !== JSON.stringify(last.main)) throw new Error(`第${last.n}回の内容が公式と違います`);
   // キャリーオーバーが読めたときだけ書き足す（読めないときは何もしない＝毎回「更新あり」にならない）
   if (last.carryover == null && check.carryover != null) { last.carryover = check.carryover; changed++; }
+  if (check.carryover == null) console.warn(`注意：第${last.n}回のキャリーオーバー額が公式CSVから読めませんでした（書き足しはしません）`);
   const start = last.n + 1;
   for (let n = start; n < start + 50; n++) { // 一度に追加するのは最大50回まで
     const d = await fetchDraw(kind, n, fetchImpl, { notYetOk: true });

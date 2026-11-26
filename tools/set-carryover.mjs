@@ -7,7 +7,7 @@ import { parseCsv } from './csv.mjs';
 
 const [, , kind, file] = process.argv;
 if (!['loto6', 'loto7'].includes(kind) || !file) { console.error('使い方：node tools/set-carryover.mjs <loto6|loto7> <CSVファイル>'); process.exit(2); }
-// 終了コード：0=書き足した／記録済み、2=使い方の誤り、3=まだ取り込まれていない回、4=公式と一致しない・キャリーオーバー行が無い、5=CSVが読めない
+// 終了コード：0=書き足した／記録済み、2=使い方の誤り、3=まだ取り込まれていない回、4=公式と一致しない・キャリーオーバー額が読めない・記録済みの額と違う、5=CSVが読めない
 let off;
 try {
   const bytes = fs.readFileSync(file);

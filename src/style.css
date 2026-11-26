@@ -228,8 +228,10 @@ dialog::backdrop { background: rgba(30, 20, 15, .45); }
 }
 
 @media (orientation: landscape) and (max-height: 500px) {
-  .cutin-text { bottom: 12%; font-size: 16px; }
-  .cutin-skip { bottom: 4px; font-size: 12px; }
+  .cutin-stage { width: min(84vw, 420px, 56vh); transform: translate(120%, -6vh); }
+  .cutin.in .cutin-stage { transform: translate(0, -6vh); }
+  .cutin-text { bottom: calc(4% + env(safe-area-inset-bottom)); font-size: 16px; }
+  .cutin-skip { top: calc(8px + env(safe-area-inset-top)); bottom: auto; left: auto; right: calc(16px + env(safe-area-inset-right)); text-align: right; font-size: 12px; }
 }
 @media (min-width: 560px) {
   .shrine { grid-template-columns: 168px 1fr; }
