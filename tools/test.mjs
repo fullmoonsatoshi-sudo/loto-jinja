@@ -135,19 +135,26 @@ t('壊れたCSVははじく', () => {
 await (async () => {
   const fakeFetch = async url => {
     const name = url.split('/').pop();
-    if (!['A1022157.CSV', 'A1022158.CSV'].includes(name)) return { status: 404, ok: false };
+    if (!['A1022157.CSV', 'A1022158.CSV'].includes(name)) return { status: 403, ok: false }; // 公式は未発表の回に 403 を返す
     const b = fxBytes(name); // 公式と同じ Shift_JIS のバイト列をそのまま返す
     return { status: 200, ok: true, arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) };
   };
   const json = { draws: L6.filter(d => d.n <= 2157).map(d => ({ ...d })) };
   delete json.draws.at(-1).carryover;
   const changed = await updateKind('loto6', json, fakeFetch).catch(e => e);
-  t('更新スクリプト：最新回のキャリーオーバーを補い、次の回を追加して、404で止まる', () => {
+  t('更新スクリプト：最新回のキャリーオーバーを補い、次の回を追加して、未発表（403）で止まる', () => {
     assert.ok(!(changed instanceof Error), String(changed));
     assert.equal(changed, 2);
     assert.equal(json.draws.at(-2).carryover, 233461295);
     assert.equal(json.draws.at(-1).n, 2158);
   });
+})();
+
+await (async () => {
+  const blocked = async () => ({ status: 403, ok: false }); // 公式サイトにまったくアクセスできない場合
+  const json = { draws: L6.filter(d => d.n <= 2158).map(d => ({ ...d })) };
+  const r = await updateKind('loto6', json, blocked).catch(e => e);
+  t('更新スクリプト：公式サイトにアクセスできないときは、未発表と取り違えずにエラーにする', () => assert.ok(r instanceof Error, String(r)));
 })();
 
 console.log(`\n${n} 件すべて合格`);
