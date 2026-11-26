@@ -75,7 +75,7 @@ function ballsHtml(main, bonus = [], opts = {}) {
   const sm = opts.small ? ' sm' : '';
   const m = main.map(n => `<span class="ball${sm}${hitSet.has(n) ? ' hit' : ''}">${pad2(n)}</span>`).join('');
   const b = bonus.length ? `<span class="bonus-group"><span class="plus">ボーナス</span>${bonus.map(n => `<span class="ball bonus${sm}">${pad2(n)}</span>`).join('')}</span>` : '';
-  return `<div class="balls" aria-label="本数字 ${main.join('、')}${bonus.length ? ' ボーナス ' + bonus.join('、') : ''}">${m}${b}</div>`;
+  return `<div class="balls" role="img" aria-label="本数字 ${main.join('、')}${bonus.length ? ' ボーナス ' + bonus.join('、') : ''}">${m}${b}</div>`;
 }
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2200); }
 const pickLine = lines => lines[Math.floor(Math.random() * lines.length)];
@@ -398,6 +398,7 @@ function openSettings() {
       <li>くじは無理のない範囲で楽しみましょう。</li>
       <li>当せん番号の出典：みずほ銀行の公式発表（公開データ jjayck/lotoanaba-data を経由し、公式と照合して取り込み）。取り込み済み：ロト6 第${d6 ? d6.draws.at(-1).n : '-'}回／ロト7 第${d7 ? d7.draws.at(-1).n : '-'}回まで</li>
       <li>登録した番号や誕生日はこの端末の中だけに保存されます。</li>
+      <li><a href="privacy.html">プライバシーポリシー</a></li>
     </ul>
     <button type="button" class="btn" data-close>閉じる</button>
   </div>`;
