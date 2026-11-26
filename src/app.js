@@ -205,12 +205,58 @@ function renderOracle() {
   fillChara(o.praying ? pickLine(CHARS[state.char].lines.pray) : (res ? '神託が出ました。気に入った番号は登録しておけますよ' : '流派をえらんで「神託をいただく」を押してくださいね'));
 }
 
+// ---------- ご祈祷のカットイン ----------
+// 画面いっぱいにキャラが割り込み、持ち物（神楽鈴・大幣）を左右に振る2枚の絵を交互に出して、一生懸命ご祈祷している様子を見せる。
+// 絵がまだ無いキャラは「お祈り」の絵を揺らして代わりにする。画面をタップするとすぐ終わる。
+const PRAY_WORDS = { miko: '神楽鈴をシャンシャン…', kannushi: '祓いたまえ、清めたまえ…', kitsune: 'こんこん…お祓いするこん', neko: 'しゃんしゃん…福よ来いにゃ' };
+function playCutin(charId) {
+  return new Promise(resolve => {
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const c = CHARS[charId];
+    const el = document.createElement('div');
+    el.className = 'cutin';
+    el.setAttribute('role', 'status');
+    el.innerHTML = `
+      <div class="cutin-band" aria-hidden="true"></div>
+      <div class="cutin-stage">
+        <img class="cutin-img f1" alt="" src="${imgPath(charId, 'oharai1')}">
+        <img class="cutin-img f2" alt="" src="${imgPath(charId, 'oharai2')}">
+        <span class="spark s1"></span><span class="spark s2"></span><span class="spark s3"></span><span class="spark s4"></span>
+      </div>
+      <p class="cutin-text"><b>${c.name}</b><span>${PRAY_WORDS[charId] || 'ご祈祷中…'}</span></p>
+      <p class="cutin-skip">タップでとばす</p>`;
+    // 振る絵が無ければ、お祈りの絵を揺らす
+    let fallback = false;
+    el.querySelectorAll('.cutin-img').forEach(img => img.addEventListener('error', () => {
+      if (fallback) return; fallback = true;
+      el.classList.add('no-swing');
+      el.querySelectorAll('.cutin-img').forEach(i => { i.onerror = null; i.src = imgPath(charId, 'pray'); });
+    }));
+    document.body.appendChild(el);
+    el.querySelector('p.cutin-text').setAttribute('aria-label', `${c.name}がご祈祷しています`);
+
+    // 2枚を交互に切り替えて「振っている」ように見せる
+    let frame = 0;
+    const swing = setInterval(() => { frame ^= 1; el.classList.toggle('alt', frame === 1); }, 170);
+    let done = false;
+    const finish = () => {
+      if (done) return; done = true;
+      clearInterval(swing); clearTimeout(timer);
+      el.classList.add('out');
+      setTimeout(() => { el.remove(); resolve(); }, reduce ? 0 : 380);
+    };
+    const timer = setTimeout(finish, reduce ? 700 : 2600);
+    el.addEventListener('click', finish);
+    requestAnimationFrame(() => el.classList.add('in'));
+  });
+}
+
 async function doOracle() {
   const o = state.oracle;
   // 待っているあいだにくじの種類が切り替わっても混ざらないよう、始めた時点のくじとデータで作る
   const game = state.game, list = draws(game), run = ++o.run;
   o.praying = true; o.result = null; render();
-  await new Promise(r => setTimeout(r, matchMedia('(prefers-reduced-motion: reduce)').matches ? 200 : 1400));
+  await playCutin(state.char);
   if (run !== o.run) return;
   o.praying = false;
   o.result = { game, tickets: oracle(game, list, o.school, o.count, { birthday: store.get('birthday', '', isDate) }) };
