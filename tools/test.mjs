@@ -4,6 +4,7 @@ import assert from 'assert/strict';
 import { judge, validTicket, nextDraw, frequency, absence, oracle, kaburi, GAMES } from '../src/lotto.js';
 import { parseCsv, toIsoDate } from './csv.mjs';
 import { updateKind } from './update-data.mjs';
+import { createHash } from 'crypto';
 
 const load = k => JSON.parse(fs.readFileSync(new URL(`../src/data/${k}.json`, import.meta.url))).draws;
 const L6 = load('loto6'), L7 = load('loto7');
@@ -144,17 +145,43 @@ await (async () => {
   const changed = await updateKind('loto6', json, fakeFetch).catch(e => e);
   t('更新スクリプト：最新回のキャリーオーバーを補い、次の回を追加して、未発表（403）で止まる', () => {
     assert.ok(!(changed instanceof Error), String(changed));
-    assert.equal(changed, 2);
+    assert.equal(changed.changed, 2);
     assert.equal(json.draws.at(-2).carryover, 233461295);
     assert.equal(json.draws.at(-1).n, 2158);
   });
 })();
 
 await (async () => {
-  const blocked = async () => ({ status: 403, ok: false }); // 公式サイトにまったくアクセスできない場合
-  const json = { draws: L6.filter(d => d.n <= 2158).map(d => ({ ...d })) };
-  const r = await updateKind('loto6', json, blocked).catch(e => e);
-  t('更新スクリプト：公式サイトにアクセスできないときは、未発表と取り違えずにエラーにする', () => assert.ok(r instanceof Error, String(r)));
+  // 予備データ（公開データ）を、取り込み済みデータから作って返す偽の通信
+  const csvOf = (list, extra = []) => [...list, ...extra].map(d => [d.n, d.date.replace(/-0?/g, '/'), ...d.main, ...d.bonus, ...d.winners, ...d.prizes].join(',')).join('\n') + '\n';
+  const mirrorFetch = (csv, shaOverride) => async url => {
+    if (url.includes('mizuhobank')) return { status: 403, ok: false }; // 公式はクラウドからだと全部 403
+    if (url.endsWith('meta.json')) return { ok: true, status: 200, text: async () => JSON.stringify({ loto6: { sha256: shaOverride || createHash('sha256').update(csv).digest('hex') } }) };
+    return { ok: true, status: 200, text: async () => csv };
+  };
+  const base = L6.filter(d => d.n <= 2157).map(d => ({ ...d }));
+  const next = L6.find(d => d.n === 2158);
+  const { carryover, ...nextNoCarry } = next;
+
+  let json = { draws: base.map(d => ({ ...d })) };
+  let r = await updateKind('loto6', json, mirrorFetch(csvOf(base, [nextNoCarry]))).catch(e => e);
+  t('予備データ：公式に拒否されたら公開データから次の回を追加する', () => {
+    assert.ok(!(r instanceof Error), String(r)); assert.equal(r.changed, 1); assert.equal(json.draws.at(-1).n, 2158);
+    assert.deepEqual(json.draws.at(-1).main, next.main); assert.match(r.source, /予備/);
+  });
+
+  json = { draws: base.map(d => ({ ...d })) };
+  const tampered = csvOf(base, [nextNoCarry]).replace(/^2150,(.*?),(\d+),/m, (m0, dt, a) => `2150,${dt},${a === '1' ? 2 : 1},`);
+  r = await updateKind('loto6', json, mirrorFetch(tampered)).catch(e => e);
+  t('予備データ：取り込み済みの回と食い違っていたら取り込まずにエラー', () => { assert.ok(r instanceof Error); assert.equal(json.draws.at(-1).n, 2157); });
+
+  json = { draws: base.map(d => ({ ...d })) };
+  r = await updateKind('loto6', json, mirrorFetch(csvOf(base, [nextNoCarry]), 'deadbeef')).catch(e => e);
+  t('予備データ：SHA-256 が合わなければ取り込まずにエラー', () => { assert.ok(r instanceof Error); assert.equal(json.draws.at(-1).n, 2157); });
+
+  json = { draws: base.map(d => ({ ...d })) };
+  r = await updateKind('loto6', json, mirrorFetch(csvOf(base))).catch(e => e);
+  t('予備データ：新しい回が無ければ何もしない', () => { assert.ok(!(r instanceof Error), String(r)); assert.equal(r.changed, 0); });
 })();
 
 console.log(`\n${n} 件すべて合格`);
