@@ -1,0 +1,27 @@
+# Google Play 用の Android アプリ（.aab）を作る。手動で実行する。
+# 署名はしない（署名の鍵は GitHub に置かず、オーナーの HDD に保管している）。できた .aab はあとで鍵で署名してから Play に上げる。
+name: Androidアプリを作る
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: TWA プロジェクトを作る
+        working-directory: tools/android
+        run: npm install --no-audit --no-fund && cd ../.. && node tools/android/generate.mjs
+      - name: .aab を作る（署名なし）
+        working-directory: android
+        run: ./gradlew bundleRelease --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: loto-jinja-aab-unsigned
+          path: android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
