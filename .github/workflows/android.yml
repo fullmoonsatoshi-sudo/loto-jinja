@@ -24,7 +24,7 @@ jobs:
         with: { distribution: temurin, java-version: '21' }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
-      - uses: android-actions/setup-android@v3
+      # Android SDK は GitHub のランナーに入っているものを使う（足りない部品は Gradle が自動で入れる）
       - name: 部品を入れる
         run: npm ci --no-audit --no-fund
       - name: テスト
