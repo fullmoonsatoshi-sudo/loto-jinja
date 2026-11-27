@@ -218,7 +218,8 @@ function syncNow() {
       const failed = !!r.error;
       if (failed !== !!syncFailed[group]) failChanged = true;
       syncFailed[group] = failed;
-      if (r.error) console.warn(`取り込み（${group}）：${r.error}`); else if (r.note) console.info(`取り込み（${group}）：${r.note}`);
+      const what = r.skipped ? `読み直さない（${r.skipped === 'recent' ? '前回の確認から間がない' : r.skipped}）` : `${r.source || '取得できず'}・追加${r.added}回・更新${r.changed}回${r.note ? `・${r.note}` : ''}`;
+      if (r.error) console.warn(`取り込み（${group}）：${r.error}`); else console.info(`取り込み（${group}）：${what}`);
       if (r.added || r.changed) kinds.forEach(k => changed.add(k));
       if (r.added && kinds.includes(state.game)) toast(`${GAMES[state.game].name} 第${draws().at(-1).n}回の結果を取り込みました`);
     }
@@ -712,7 +713,8 @@ function openSettings() {
       <li>くじは無理のない範囲で楽しみましょう。</li>
       ${IS_APP ? `<li>当せん番号の出典：みずほ銀行の公式発表。アプリが公式サイトの当せん番号のCSVを直接読み込みます（読めないときは、このアプリの配信元（GitHub Pages）のデータを使います）。アプリに入っている過去の回のうち、ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4は公開データ lotto-data-hub（MITライセンス。元データは loto-life.net）を元にしています。正式な結果は公式発表でご確認ください。取り込み済み：<span id="dataStatus">${dataStatus()}</span>まで</li>
       <li>登録した番号や誕生日、取り込んだ当せん番号はこの端末の中だけに保存されます。</li>
-      <li>このアプリには広告が表示されます。神託は広告を見るといただけます（広告を用意できないときは、広告なしでいただけます）。</li>` : `<li>当せん番号の出典：ロト6・ロト7はみずほ銀行の公式発表（公開データ jjayck/lotoanaba-data を経由し、公式と照合して取り込み）。ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4は公開データ lotto-data-hub（MITライセンス。元データは loto-life.net）を元に取り込み、結果は抽せんの翌朝〜午前中に反映されます。正式な結果は公式発表でご確認ください。取り込み済み：<span id="dataStatus">${dataStatus()}</span>まで</li>
+      <li>このアプリには広告が表示されます。神託は広告を見るといただけます（広告を用意できないときは、広告なしでいただけます）。</li>
+      <li id="adPrivacyItem" hidden><button type="button" class="btn small sub" id="adPrivacy">広告のプライバシー設定</button></li>` : `<li>当せん番号の出典：ロト6・ロト7はみずほ銀行の公式発表（公開データ jjayck/lotoanaba-data を経由し、公式と照合して取り込み）。ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4は公開データ lotto-data-hub（MITライセンス。元データは loto-life.net）を元に取り込み、結果は抽せんの翌朝〜午前中に反映されます。正式な結果は公式発表でご確認ください。取り込み済み：<span id="dataStatus">${dataStatus()}</span>まで</li>
       <li>登録した番号や誕生日はこの端末の中だけに保存されます。</li>`}
       <li><a class="tap-link" href="privacy.html">プライバシーポリシー</a></li>
     </ul>
@@ -720,6 +722,8 @@ function openSettings() {
   </div>`;
   wireFallback(dlg);
   dlg.showModal();
+  // アプリ：広告の同意をあとから変える入口（必要な地域だけ。日本では通常出ない）
+  if (IS_APP) nativeMod.then(N => { const li = $('#adPrivacyItem'); if (li && N.privacyOptionsRequired()) li.hidden = false; });
   // まだ読み込んでいない種類は、開いてから読み込んで書きかえる
   Promise.all(GAME_KEYS.map(k => loadData(k).catch(() => null))).then(() => { const el = $('#dataStatus'); if (el) el.textContent = dataStatus(); });
 }
@@ -826,6 +830,7 @@ const byId = {
     if (addTicket(state.game, nums, drawNo, gtype() === 'numbers' ? state.pickType : undefined)) { state.pick = emptyPick(state.game); state.pickPos = 0; state.pickDraw = null; toast(`第${drawNo}回の番号として登録しました`); render(); }
   },
   more: () => { state.histShown += 50; renderHistList(); },
+  adPrivacy: () => { if (IS_APP) nativeMod.then(N => N.showPrivacyOptions()); },
 };
 document.addEventListener('click', e => {
   const t = e.target.closest('button'); if (!t || t.disabled) return;

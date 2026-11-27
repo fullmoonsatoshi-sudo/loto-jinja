@@ -35,7 +35,7 @@ export function exitApp() { App.exitApp(); }
 
 // ---------- 広告 ----------
 const GAP = 8; // バナーと下のタブの間のすき間（押し間違いを防ぐ）
-const ads = { init: null, ready: false, want: false, shown: false, created: false, height: 0 };
+const ads = { init: null, ready: false, want: false, shown: false, created: false, height: 0, privacyRequired: false };
 const bannerMargin = () => (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tab-h')) || 64) + GAP;
 // 広告が出ている間は、画面の下に「広告の高さ＋すき間」だけ余白をあける（style.css の --ad-space）。
 // 一時的に隠す間（カットイン・ダイアログ）も余白は残し、画面がずれないようにする
@@ -73,6 +73,8 @@ export function initAds() {
       let info = await AdMob.requestConsentInfo();
       if (info.isConsentFormAvailable && info.status === 'REQUIRED') info = await AdMob.showConsentForm();
       canRequest = info.canRequestAds !== false;
+      // 地域によっては、同意をあとから変えられる入口（プライバシー設定）をアプリに置く必要がある（設定の画面に出す）
+      ads.privacyRequired = info.privacyOptionsRequirementStatus === 'REQUIRED';
     } catch (e) { console.warn('広告の同意情報を取得できませんでした：', e && e.message); }
     if (!canRequest) return false;
     await AdMob.initialize({ initializeForTesting: false, tagForChildDirectedTreatment: false, tagForUnderAgeOfConsent: false });
@@ -83,6 +85,12 @@ export function initAds() {
     return true;
   })().catch(e => { console.warn('広告を準備できませんでした：', e && e.message); return false; });
   return ads.init;
+}
+
+// 広告のプライバシー設定（同意の変更）の入口が必要か・その画面を出す
+export const privacyOptionsRequired = () => ads.privacyRequired;
+export async function showPrivacyOptions() {
+  try { await AdMob.showPrivacyOptionsForm(); } catch (e) { console.warn('広告のプライバシー設定を開けませんでした：', e && e.message); }
 }
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);

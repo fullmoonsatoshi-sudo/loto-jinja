@@ -25,6 +25,7 @@ const resumed = () => { try { return (adb('shell', 'dumpsys', 'activity', 'activ
 let ws, msgId = 0;
 const pending = new Map(), jsErrors = [], consoleLog = [];
 async function connect() {
+  try { ws?.close(); } catch { /* 閉じている */ }
   for (let i = 0; i < 90; i++) {
     const sock = (adb('shell', 'cat', '/proc/net/unix').match(/@(webview_devtools_remote_\d+)/) || [])[1];
     if (sock) {
@@ -35,6 +36,8 @@ async function connect() {
         if (page) {
           ws = new WebSocket(page.webSocketDebuggerUrl);
           await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+          // 接続が切れたら（アプリが終了した等）、待っている呼び出しをすべて失敗にする
+          ws.onclose = () => { for (const [, f] of pending) f({ closed: true }); pending.clear(); };
           ws.onmessage = ev => {
             const m = JSON.parse(ev.data);
             if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
@@ -54,7 +57,13 @@ async function connect() {
   }
   throw new Error('WebView に接続できませんでした');
 }
-const cdp = (method, params = {}) => new Promise(res => { const id = ++msgId; pending.set(id, res); ws.send(JSON.stringify({ id, method, params })); });
+const cdp = (method, params = {}) => new Promise((res, rej) => {
+  if (!ws || ws.readyState !== 1) return rej(new Error('WebView との接続が切れました'));
+  const id = ++msgId;
+  const timer = setTimeout(() => { pending.delete(id); rej(new Error(`応答がありません：${method}`)); }, 20000);
+  pending.set(id, m => { clearTimeout(timer); m.closed ? rej(new Error('WebView との接続が切れました')) : res(m); });
+  ws.send(JSON.stringify({ id, method, params }));
+});
 async function js(expr) {
   const r = await cdp('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
   if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description || 'JS の評価に失敗');
@@ -62,19 +71,38 @@ async function js(expr) {
 }
 async function waitFor(expr, ms = 30000) {
   const end = Date.now() + ms;
-  while (Date.now() < end) { try { if (await js(expr)) return true; } catch { /* 描画の途中 */ } await sleep(500); }
+  while (Date.now() < end) {
+    try { if (await js(expr)) return true; }
+    catch (e) { if (/接続が切れました/.test(e.message)) throw e; /* 描画の途中 */ }
+    await sleep(500);
+  }
   return false;
 }
 
-// WebView の画面上の位置（uiautomator で読む）。読めなければ JS でクリックする
+// WebView の画面上の位置。1) uiautomator で読む 2) 画面の大きさとステータスバーの高さ（dumpsys）から計算 3) どちらもだめなら JS でクリックする
 let wv = null;
-function webviewBounds() {
+async function webviewBounds() {
+  for (let i = 0; i < 3; i++) {
+    try {
+      adb('shell', 'uiautomator', 'dump', '/sdcard/ui.xml');
+      const xml = adb('shell', 'cat', '/sdcard/ui.xml');
+      const m = xml.match(/class="android\.webkit\.WebView"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);
+      if (m) return { x1: +m[1], y1: +m[2], x2: +m[3], y2: +m[4], how: 'uiautomator' };
+    } catch (e) { note(`uiautomator で読めません：${String(e.message).split('\n')[0]}`); }
+    await sleep(1000);
+  }
   try {
-    adb('shell', 'uiautomator', 'dump', '/sdcard/ui.xml');
-    const xml = adb('shell', 'cat', '/sdcard/ui.xml');
-    const m = xml.match(/class="android\.webkit\.WebView"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);
-    if (m) return { x1: +m[1], y1: +m[2], x2: +m[3], y2: +m[4] };
-  } catch { /* 読めない */ }
+    const [W, H] = adb('shell', 'wm', 'size').match(/(\d+)x(\d+)/).slice(1).map(Number);
+    const v = await js('({ w: innerWidth, h: innerHeight, dpr: devicePixelRatio })');
+    const wpx = Math.round(v.w * v.dpr), hpx = Math.round(v.h * v.dpr);
+    let top = 0;
+    if (hpx < H - 4) { // WebView がステータスバーの下から始まる（古い WebView では Capacitor が上下に余白をとる）
+      const dump = adb('shell', 'dumpsys', 'window');
+      const sm = dump.match(/statusBars[^\n]*?[Ff]rame=\[0,0\]\[\d+,(\d+)\]/);
+      top = sm ? Number(sm[1]) : 0;
+    }
+    return { x1: Math.round((W - wpx) / 2), y1: top, x2: Math.round((W + wpx) / 2), y2: top + hpx, how: 'dumpsys' };
+  } catch (e) { note(`dumpsys でも読めません：${e.message}`); }
   return null;
 }
 async function tap(sel) {
@@ -92,13 +120,15 @@ const back = async () => { adb('shell', 'input', 'keyevent', '4'); await sleep(1
 
 // ---------- 操作 ----------
 async function main() {
+  shotNo = 0;
+  for (const f of fs.readdirSync(OUT)) if (/^emulator-\d+-.*\.png$/.test(f)) fs.unlinkSync(`${OUT}/${f}`);
   const url = await connect();
   note(`WebView：${url}`);
   check('起動：18歳以上の確認が出る', await waitFor("!!document.querySelector('#gate[open]')", 60000));
   await sleep(1500);
   shot('gate');
-  wv = webviewBounds();
-  note(wv ? `WebView の位置：[${wv.x1},${wv.y1}]-[${wv.x2},${wv.y2}]（adb のタップで操作）` : 'WebView の位置が読めないため、JS のクリックで操作');
+  wv = await webviewBounds();
+  note(wv ? `WebView の位置：[${wv.x1},${wv.y1}]-[${wv.x2},${wv.y2}]（${wv.how}。adb のタップで操作）` : 'WebView の位置が読めないため、JS のクリックで操作');
   check('同意の前はバナー広告を出さない', (await js("getComputedStyle(document.documentElement).getPropertyValue('--ad-space').trim()")) in { '': 1, '0px': 1 });
 
   await tap('#agree');
@@ -168,8 +198,25 @@ async function main() {
   check('戻るボタン：ホームならアプリを閉じる', !new RegExp(PKG).test(resumed()), resumed().trim());
 }
 
-try { await main(); }
-catch (e) { check('操作の途中で止まりました', false, e.message); try { shot('error'); } catch { /* 撮れない */ } }
+// エミュレーターでは Google Play 開発者サービスが起動直後に入れ替わり、それに頼るアプリが一緒に終了させられることがある。
+// 接続が切れたときは、アプリを入れ直した状態から1回だけやり直す
+for (let attempt = 1; attempt <= 2; attempt++) {
+  try { await main(); break; }
+  catch (e) {
+    try { shot('error'); } catch { /* 撮れない */ }
+    const lost = /接続が切れました|応答がありません|接続できませんでした/.test(e.message);
+    if (attempt === 1 && lost) {
+      note(`--- 1回目は途中で WebView との接続が切れました（${e.message}。アプリの状態：${resumed().trim() || '終了'}）。最初からやり直します ---`);
+      failed = 0; jsErrors.length = 0;
+      adb('shell', 'am', 'force-stop', PKG); adb('shell', 'pm', 'clear', PKG);
+      await sleep(3000);
+      adb('shell', 'am', 'start', '-n', `${PKG}/.MainActivity`);
+      continue;
+    }
+    check('操作の途中で止まりました', false, e.message);
+    break;
+  }
+}
 const errs = jsErrors.filter(Boolean);
 check('JS のエラー（例外・console.error）が無い', errs.length === 0, errs.slice(0, 5).join(' ／ '));
 note('--- console（warn/info/log の一部） ---');
