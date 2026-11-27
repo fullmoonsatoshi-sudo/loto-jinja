@@ -170,7 +170,8 @@ table.trend-table td .muted { display: block; font-size: 14px; }
 .rank ol { margin: 0; padding-left: 24px; }
 
 /* ---------- 数字パッド ---------- */
-.pad { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 16px 0; }
+/* 360px幅でも1つ44px以上になるよう、横の間隔は4px */
+.pad { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px 4px; margin: 16px 0; }
 .pad button { min-height: 48px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; }
 .pad button[aria-pressed="true"] { background: var(--shu); color: #fff; border-color: var(--shu); }
 .pad.pad5 { grid-template-columns: repeat(5, 1fr); margin: 8px 0 16px; }
@@ -293,3 +294,5 @@ dialog::backdrop { background: rgba(30, 20, 15, .45); }
 @media (prefers-reduced-motion: reduce) { .chara { animation: none !important; } #toast { transition: none; } }
 
 .nw { white-space: nowrap; }
+/* 文中のリンクも押せる高さ44px以上にする */
+a.tap-link { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; margin-left: -8px; color: var(--shu); font-weight: 700; }

@@ -1,7 +1,7 @@
 // 計算まわり（照合・統計・神託・かぶりにくさ指数）。画面のコードとは分けて、テストしやすくしている。
 
 // type：loto（数字をえらぶ）／bingo（3×3の盤面）／numbers（0〜9を桁ごとに）
-// hub：結果を公開データ lotto-data-hub から取り込むくじ（公開データは抽せんの翌朝に更新されるので、結果は翌朝に反映）
+// hub：結果を公開データ lotto-data-hub から取り込むくじ（公開データの更新は抽せんの翌朝〜午前中なので、結果もそのころ反映）
 // bigTier：この等級まで（数字が小さいほど上）を「高額の当せん」としてキャラが大喜びする
 export const GAMES = {
   loto6: { name: 'ロト6', type: 'loto', max: 43, pick: 6, bonus: 1, tiers: 5, drawDays: [1, 4], bigTier: 3 }, // 月・木
@@ -92,10 +92,15 @@ export function judgeNumbers(kind, digits, type, drawDigits) {
 // 当たりの順位（小さいほど上）。はずれは 0
 const PRIZE_RANK = { straight: 1, setStraight: 2, box: 3, setBox: 4, mini: 5 };
 export function winRank(kind, result) { return !result ? 0 : GAMES[kind].type === 'numbers' ? PRIZE_RANK[result] : result; }
-export function isBigWin(kind, result) {
+// 高額の当せん：1口の当せん金が分かれば10万円以上。分からないとき（当せん金の書き足し前）は等級で決める
+//   ロト6・7は3等まで、ミニロト・ビンゴ5は2等まで（bigTier）、ナンバーズ4はストレート・セット（ストレート）、ナンバーズ3はストレートだけ
+export const BIG_AMOUNT = 100000;
+export function isBigWin(kind, result, amount) {
   const g = GAMES[kind];
   if (!result) return false;
-  return g.type === 'numbers' ? PRIZE_RANK[result] <= 2 : result <= g.bigTier;
+  if (Number.isFinite(amount) && amount > 0) return amount >= BIG_AMOUNT;
+  if (g.type === 'numbers') return kind === 'numbers4' ? PRIZE_RANK[result] <= 2 : result === 'straight';
+  return result <= g.bigTier;
 }
 // 当せんの名前（「3等」「ボックス」）と当せん金（分からなければ null）
 export function prizeOf(kind, draw, result) {

@@ -165,10 +165,10 @@ function renderHome() {
   const carry = last.carryover == null ? '' :
     `<p class="carry">キャリーオーバー <b>${last.carryover ? yen(last.carryover) : 'なし'}</b></p>`;
   const range = `第${last.n + 1}回${nx.pending > 1 ? `〜第${last.n + nx.pending}回` : ''}`;
-  // 公開データから取り込むくじは、結果が抽せんの翌朝に反映される。1回分の待ちはふつうのことなので、強い表示にしない
+  // 公開データから取り込むくじは、結果が抽せんの翌朝〜午前中に反映される。1回分の待ちはふつうのことなので、強い表示にしない
   const pendingHtml = !nx.pending ? '' : g.hub && nx.pending === 1
-    ? `<p class="notice" role="status">${range}は抽せん済みです。${g.name}の結果は、抽せんの翌朝（7時ごろ）に反映されます。それまでは公式発表（宝くじ公式サイト）でご確認ください。</p>`
-    : `<p class="notice strong" role="status">${range}は抽せん済みですが、まだ結果を取り込めていません。最新の結果は公式発表（宝くじ公式サイト）でご確認ください。${g.hub ? `（${g.name}の結果は、ふだんは抽せんの翌朝に反映されます）` : ''}</p>`;
+    ? `<p class="notice" role="status">${range}は抽せん済みです。${g.name}の結果は、抽せんの翌朝〜午前中に反映されます。それまでは公式発表（宝くじ公式サイト）でご確認ください。</p>`
+    : `<p class="notice strong" role="status">${range}は抽せん済みですが、まだ結果を取り込めていません。最新の結果は公式発表（宝くじ公式サイト）でご確認ください。${g.hub ? `（${g.name}の結果は、ふだんは抽せんの翌朝〜午前中に反映されます）` : ''}</p>`;
   view.innerHTML = `
     ${pendingHtml}
     ${charaHtml('normal')}
@@ -182,7 +182,7 @@ function renderHome() {
     <section class="card countdown${g.hub ? ' has-note' : ''}">
       <div><div class="muted">次回 第${nx.n}回</div><div>${fmtJst(nx.time)}</div></div>
       <div class="big" id="cd"></div>
-      ${g.hub ? '<div class="cd-note">結果は抽せんの翌朝に反映されます</div>' : ''}
+      ${g.hub ? '<div class="cd-note">結果は抽せんの翌朝〜午前中に反映されます</div>' : ''}
     </section>
     <section class="stack">
       <button class="btn" type="button" data-go="oracle">神託をいただく</button>
@@ -221,11 +221,11 @@ function renderOracle() {
     const k = kaburi(state.game, t, list.at(-1));
     const cls = k.score >= 80 ? 'good' : k.score >= 50 ? '' : 'bad';
     return `<div class="ticket">
-      <div class="row between"><b>${i + 1}口目</b><span class="tag ${cls}"><span class="nw">かぶりにくさ ${k.score}点</span>・<span class="nw">${k.label}</span></span></div>
+      <div class="row between"><b>${i + 1}口目</b><span class="tag ${cls} nw">${k.label}</span></div>
       <div class="mt8">${ticketNumsHtml(state.game, t, { small: true })}</div>
       ${type === 'numbers' ? `<div class="note">申込タイプの例：${NUM_TYPES[suggestType(state.game, t)].name}（${NUM_TYPES[suggestType(state.game, t)].desc}）</div>` : ''}
       <div class="meter ${cls}" aria-hidden="true"><i style="width:${k.score}%"></i></div>
-      <div class="note">${k.reasons.map(r => '・' + r).join('<br>')}</div>
+      <div class="note"><b>かぶりにくさ ${k.score}点</b>（100点満点）<br>${k.reasons.map(r => '・' + r).join('<br>')}</div>
       <div class="mt8"><button type="button" class="btn small sub" data-save="${i}">マイ番号に登録</button></div>
     </div>`;
   }).join('') : '';
@@ -247,7 +247,7 @@ function renderOracle() {
         <div class="stepper"><button type="button" data-step="-1" aria-label="口数を減らす">−</button><output id="cnt">${o.count}口</output><button type="button" data-step="1" aria-label="口数を増やす">＋</button></div>
       </div>
       <button class="btn mt16" type="button" id="doOracle" ${o.praying ? 'disabled' : ''}>${o.praying ? 'お祈り中…' : '神託をいただく'}</button>
-      <p class="disclaimer">神託は過去のデータを使ったお楽しみ機能です。抽せんは毎回まったくの偶然で決まるため、当せん確率は上がりません。<br><a href="privacy.html">プライバシーポリシー</a></p>
+      <p class="disclaimer">神託は過去のデータを使ったお楽しみ機能です。抽せんは毎回まったくの偶然で決まるため、当せん確率は上がりません。<br><a class="tap-link" href="privacy.html">プライバシーポリシー</a></p>
     </section>
     ${tickets ? `<section class="card" id="oracleResult"><h2>${g.name}の神託</h2>${tickets}
       <p class="note">${kaburiNote}</p></section>` : ''}
@@ -422,7 +422,7 @@ function renderMine() {
   const byNo = new Map(list.map(x => [x.n, x]));
   const mine = loadTickets().filter(t => t.game === state.game).sort((a, b) => b.draw - a.draw || b.created - a.created);
 
-  let best = 0, bestRes = 0, decided = 0;
+  let best = 0, bestRes = 0, bestAmount = null, decided = 0;
   const type = gtype();
   const items = mine.map(t => {
     const dr = byNo.get(t.draw);
@@ -431,8 +431,8 @@ function renderMine() {
       decided++;
       const r = judge(state.game, t.nums, dr, t.type);
       const rank = winRank(state.game, r);
-      if (rank && (!best || rank < best)) { best = rank; bestRes = r; }
       const p = prizeOf(state.game, dr, r);
+      if (rank && (!best || rank < best)) { best = rank; bestRes = r; bestAmount = p.amount; }
       res = r ? `<span class="res win">${p.label}${type === 'numbers' ? '' : ' '}当せん！ ${p.amount ? yen(p.amount) : '（金額は公式発表で確認）'}</span>` : '<span class="res">はずれ</span>';
       if (type === 'bingo') {
         const ls = bingoLines(t.nums, dr.main);
@@ -455,7 +455,7 @@ function renderMine() {
 
   const L = CHARS[state.char].lines;
   const expr = best ? 'joy' : decided ? 'sad' : 'normal';
-  const line = best ? (isBigWin(state.game, bestRes) ? L.big[0] : L.win[0]) : decided ? L.lose[0] : '買った番号を登録しておくと、結果が入ったときに自動で確かめますね';
+  const line = best ? (isBigWin(state.game, bestRes, bestAmount) ? L.big[0] : L.win[0]) : decided ? L.lose[0] : '買った番号を登録しておくと、結果が入ったときに自動で確かめますね';
 
   view.innerHTML = `
     ${charaHtml(expr)}
@@ -585,9 +585,9 @@ function openSettings() {
       <li>18歳以上の方向けのアプリです。くじの購入はできません。</li>
       <li>神託（予想）はお楽しみ機能です。当せん確率は上がりません。</li>
       <li>くじは無理のない範囲で楽しみましょう。</li>
-      <li>当せん番号の出典：みずほ銀行の公式発表。ロト6・ロト7は公開データ jjayck/lotoanaba-data、ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4は公開データ lotto-data-hub（MITライセンス）を経由し、公式と照合して取り込み。ミニロト・ビンゴ5・ナンバーズの結果は抽せんの翌朝に反映されます。取り込み済み：<span id="dataStatus">${dataStatus()}</span>まで</li>
+      <li>当せん番号の出典：ロト6・ロト7はみずほ銀行の公式発表（公開データ jjayck/lotoanaba-data を経由し、公式と照合して取り込み）。ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4は公開データ lotto-data-hub（MITライセンス）を元に取り込み、結果は抽せんの翌朝〜午前中に反映されます。正式な結果は公式発表でご確認ください。取り込み済み：<span id="dataStatus">${dataStatus()}</span>まで</li>
       <li>登録した番号や誕生日はこの端末の中だけに保存されます。</li>
-      <li><a href="privacy.html">プライバシーポリシー</a></li>
+      <li><a class="tap-link" href="privacy.html">プライバシーポリシー</a></li>
     </ul>
     <button type="button" class="btn" data-close>閉じる</button>
   </div>`;
@@ -695,7 +695,7 @@ const byId = {
     const isLoto = gtype() === 'loto';
     const nums = isLoto ? [...state.pick].sort((a, b) => a - b) : [...state.pick];
     const drawNo = Number($('#pickDraw').value);
-    if (addTicket(state.game, nums, drawNo, gtype() === 'numbers' ? state.pickType : undefined)) { state.pick = emptyPick(state.game); state.pickPos = 0; toast(`第${drawNo}回の番号として登録しました`); render(); }
+    if (addTicket(state.game, nums, drawNo, gtype() === 'numbers' ? state.pickType : undefined)) { state.pick = emptyPick(state.game); state.pickPos = 0; state.pickDraw = null; toast(`第${drawNo}回の番号として登録しました`); render(); }
   },
   more: () => { state.histShown += 50; renderHistList(); },
 };

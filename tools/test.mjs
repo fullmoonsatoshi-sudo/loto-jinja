@@ -4,7 +4,7 @@ import assert from 'assert/strict';
 import { judge, validTicket, nextDraw, frequency, absence, oracle, kaburi, GAMES, bingoLines, digitFrequency, digitAbsence, prizeOf, isBigWin, winRank, isZorome, suggestType, schoolDesc } from '../src/lotto.js';
 import { parseCsv, toIsoDate, parseBingo5Csv, parseNumbersCsv, officialCsvUrl } from './csv.mjs';
 import { updateKind } from './update-data.mjs';
-import { updateHubKind, checkSequence, checkDraw } from './hub.mjs';
+import { updateHubKind, checkSequence, checkDraw, MAX_NEW } from './hub.mjs';
 import { loadRecent } from './init-hub-data.mjs';
 import { createHash } from 'crypto';
 
@@ -303,15 +303,21 @@ t('ナンバーズ validTicket（先頭0・範囲・タイプ・ミニは3だけ
   assert.ok(!validTicket('numbers3', [0, 1], 'straight')); assert.ok(!validTicket('numbers3', [1, 2, 3])); assert.ok(!validTicket('numbers4', [1, 2, 3, 4], 'mini'));
   assert.ok(!validTicket('numbers3', [1, 2, 3], 'jumbo'));
 });
+// 当せん金は「公式の値を入れた回」で確かめる（公開データから追記した新しい回には当せん金が無いので、最新回は使わない）
 t('当せん金の参照：等級・タイプごと、データに無い回は null', () => {
-  const x = D.numbers3.at(-1); assert.ok(x.prizes, '最新回に当せん金がある');
-  assert.deepEqual(prizeOf('numbers3', x, 'box'), { label: 'ボックス', amount: x.prizes.box });
-  assert.deepEqual(prizeOf('miniloto', D.miniloto.at(-1), 2), { label: '2等', amount: D.miniloto.at(-1).prizes[1] });
+  const x = D.numbers3.find(d => d.n === 7123);
+  assert.deepEqual(prizeOf('numbers3', x, 'box'), { label: 'ボックス', amount: 14100 });
+  assert.deepEqual(prizeOf('miniloto', D.miniloto.find(d => d.n === 1414), 2), { label: '2等', amount: 98900 });
+  assert.deepEqual(prizeOf('numbers3', { main: [1, 2, 3] }, 'mini'), { label: 'ミニ', amount: null });
   assert.deepEqual(prizeOf('bingo5', { main: [] }, 7), { label: '7等', amount: null });
   assert.equal(prizeOf('loto6', L6.at(-1), 0), null);
 });
-t('高額の当せん：ロト6/7は3等まで（従来どおり）、ナンバーズはストレート・セット（ストレート）', () => {
-  assert.ok(isBigWin('loto6', 3)); assert.ok(!isBigWin('loto6', 4)); assert.ok(isBigWin('numbers4', 'setStraight')); assert.ok(!isBigWin('numbers4', 'box'));
+t('高額の当せん：当せん金が分かれば10万円以上、分からなければ等級で（ロト6/7は3等まで・N4はストレートとセット（ストレート）・N3はストレート）', () => {
+  assert.ok(isBigWin('loto6', 3, 322900)); assert.ok(!isBigWin('loto6', 4, 6700)); assert.ok(isBigWin('loto6', 3)); assert.ok(!isBigWin('loto6', 4));
+  assert.ok(!isBigWin('numbers3', 'setStraight', 49400)); assert.ok(isBigWin('numbers3', 'straight', 115800)); assert.ok(!isBigWin('numbers3', 'straight', 84700));
+  assert.ok(isBigWin('numbers4', 'setStraight', 546000)); assert.ok(!isBigWin('numbers4', 'box', 84000));
+  assert.ok(!isBigWin('numbers3', 'setStraight')); assert.ok(isBigWin('numbers4', 'setStraight')); assert.ok(!isBigWin('bingo5', 3)); assert.ok(isBigWin('bingo5', 2));
+  assert.ok(!isBigWin('miniloto', 0, 0));
   assert.ok(winRank('numbers3', 'straight') < winRank('numbers3', 'mini'));
 });
 
@@ -441,7 +447,7 @@ const recent = loadRecent();
 for (const k of NEW) {
   t(`データ ${k}：第1回から連続・日付が増える・数字が範囲内・形がそろう`, () => {
     const json = JSON.parse(fs.readFileSync(new URL(`../src/data/${k}.json`, import.meta.url)));
-    assert.equal(json.kind, k); assert.match(json.source, /みずほ銀行/); assert.match(json.source, /lotto-data-hub/);
+    assert.equal(json.kind, k); assert.match(json.source, /lotto-data-hub/); assert.match(json.source, /公式発表でご確認ください/);
     assert.equal(json.draws[0].n, 1); checkSequence(json.draws);
     json.draws.forEach(d => { checkDraw(k, d); assert.equal('prizes' in d, 'winners' in d, `第${d.n}回`); });
   });
@@ -460,18 +466,19 @@ t('データ：fixtures の直近20回は、公式CSVの実物とも一致（ナ
 // --- 公開データ（lotto-data-hub）からの追記 ---
 await (async () => {
   const toHub = (kind, list) => [...list].reverse().map(d => ({ round: d.n, date: d.date, numbers: d.main, bonus: kind === 'miniloto' ? d.bonus : [] }));
+  const FAR = new Date('2100-01-01T00:00:00Z'); // 追記する回の抽せん時刻を過ぎていることにする
   const hubFetch = body => async url => { assert.match(url, /lotto-data-hub\/data\/\w+\.json$/); return { ok: true, status: 200, text: async () => JSON.stringify(body) }; };
   for (const kind of NEW) {
     const all = D[kind], base = all.slice(0, -1).map(d => ({ ...d })), last = all.at(-1);
     let json = { draws: base.map(d => ({ ...d })) };
-    let r = await updateHubKind(kind, json, hubFetch(toHub(kind, all))).catch(e => e);
+    let r = await updateHubKind(kind, json, hubFetch(toHub(kind, all)), FAR).catch(e => e);
     t(`公開データ ${kind}：新しい回を1つ追記（当せん金は付けない）`, () => {
       assert.ok(!(r instanceof Error), String(r)); assert.equal(r.changed, 1);
       const got = json.draws.at(-1); assert.equal(got.n, last.n); assert.deepEqual(got.main, last.main); assert.ok(!('prizes' in got));
     });
   }
   const kind = 'numbers3', all = D[kind], base = all.slice(0, -1);
-  const tryWith = async body => { const json = { draws: base.map(d => ({ ...d })) }; const r = await updateHubKind(kind, json, hubFetch(body)).catch(e => e); return { r, json }; };
+  const tryWith = async body => { const json = { draws: base.map(d => ({ ...d })) }; const r = await updateHubKind(kind, json, hubFetch(body), FAR).catch(e => e); return { r, json }; };
   const hub = toHub(kind, all);
   const cases = {
     '直近20回のどれかが手元と違う': hub.map(x => x.round === base.at(-5).n ? { ...x, numbers: x.numbers.map(v => (v + 1) % 10) } : x),
@@ -488,7 +495,7 @@ await (async () => {
   }
   {
     const json = { draws: all.map(d => ({ ...d })) };
-    const r = await updateHubKind(kind, json, hubFetch(hub)).catch(e => e);
+    const r = await updateHubKind(kind, json, hubFetch(hub), FAR).catch(e => e);
     t('公開データ：新しい回が無ければ何もしない', () => { assert.ok(!(r instanceof Error), String(r)); assert.equal(r.changed, 0); });
     const r2 = await updateHubKind(kind, { draws: all.map(d => ({ ...d })) }, async () => ({ ok: false, status: 404 })).catch(e => e);
     t('公開データ：取得できなければエラー', () => assert.ok(r2 instanceof Error));
@@ -496,14 +503,69 @@ await (async () => {
   {
     const b = toHub('bingo5', D.bingo5).map(x => x.round === D.bingo5.at(-1).n ? { ...x, numbers: [6, ...x.numbers.slice(1)] } : x);
     const json = { draws: D.bingo5.slice(0, -1).map(d => ({ ...d })) };
-    const r = await updateHubKind('bingo5', json, hubFetch(b)).catch(e => e);
+    const r = await updateHubKind('bingo5', json, hubFetch(b), FAR).catch(e => e);
     t('公開データ ビンゴ5：マスの範囲外の数字ならエラー', () => { assert.ok(r instanceof Error); assert.equal(json.draws.length, D.bingo5.length - 1); });
     const m = toHub('miniloto', D.miniloto).map(x => x.round === D.miniloto.at(-1).n ? { ...x, bonus: [x.numbers[0]] } : x);
     const json2 = { draws: D.miniloto.slice(0, -1).map(d => ({ ...d })) };
-    const r3 = await updateHubKind('miniloto', json2, hubFetch(m)).catch(e => e);
+    const r3 = await updateHubKind('miniloto', json2, hubFetch(m), FAR).catch(e => e);
     t('公開データ ミニロト：ボーナスが本数字と重複ならエラー', () => { assert.ok(r3 instanceof Error); assert.equal(json2.draws.length, D.miniloto.length - 1); });
   }
+  // 抽せん日どおりか・未来の回でないか・一度に追記する回数
+  {
+    const last = all.at(-1), next = nextDraw(kind, last, new Date(Date.parse(`${last.date}T10:00:00Z`)));
+    const nextDate = new Date(next.time.getTime() + 9 * 3600e3).toISOString().slice(0, 10);
+    const add = (date, extra = {}) => [{ round: last.n + 1, date, numbers: [1, 2, 3], bonus: [], ...extra }, ...hub];
+    const base2 = () => ({ draws: all.map(d => ({ ...d })) });
+    let j = base2(), r = await updateHubKind(kind, j, hubFetch(add(nextDate)), FAR).catch(e => e);
+    t('公開データ：抽せん日どおりの次の回は追記できる', () => { assert.ok(!(r instanceof Error), String(r)); assert.equal(j.draws.at(-1).date, nextDate); });
+    const wrongDay = new Date(next.time.getTime() + 9 * 3600e3 + 86400e3 * (new Date(next.time).getUTCDay() === 5 ? 1 : 0) + 86400e3).toISOString().slice(0, 10);
+    j = base2(); r = await updateHubKind(kind, j, hubFetch(add(wrongDay)), FAR).catch(e => e);
+    t('公開データ：抽せん日でない日付の回はエラー（取り込まない）', () => { assert.ok(r instanceof Error, wrongDay); assert.match(r.message, /抽せん日/); assert.equal(j.draws.length, all.length); });
+    j = base2(); r = await updateHubKind(kind, j, hubFetch(add(nextDate)), new Date(next.time.getTime() - 60e3)).catch(e => e);
+    t('公開データ：まだ抽せん前（今日より先・抽せん時刻前）の回はエラー', () => { assert.ok(r instanceof Error); assert.match(r.message, /抽せん前/); assert.equal(j.draws.length, all.length); });
+    const short = all.slice(0, -60).map(d => ({ ...d }));
+    j = { draws: short }; r = await updateHubKind(kind, j, hubFetch(hub), FAR).catch(e => e);
+    t(`公開データ：一度に追記するのは最大${MAX_NEW}回（残りは次回）`, () => {
+      assert.ok(!(r instanceof Error), String(r)); assert.equal(r.changed, MAX_NEW); assert.equal(j.draws.at(-1).n, all.at(-11).n);
+      r = null;
+    });
+    const r2 = await updateHubKind(kind, j, hubFetch(hub), FAR).catch(e => e);
+    t('公開データ：2回目の実行で残りを追記', () => { assert.ok(!(r2 instanceof Error), String(r2)); assert.equal(j.draws.at(-1).n, all.at(-1).n); });
+  }
 })();
+
+// --- 通し：4種類すべてに「当せん金なしの新しい回」を追記した状態でも、テストが全部通る ---
+// （明朝の自動取り込みの直後にテストが落ちて、ロト6・7の公開まで止まることがないように）
+if (!process.env.LOTOJINJA_NESTED) {
+  const { execFileSync } = await import('child_process');
+  const os = await import('os'); const path = await import('path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'append-'));
+  const root = new URL('../', import.meta.url).pathname;
+  for (const f of ['src', 'tools', 'package.json']) fs.cpSync(path.join(root, f), path.join(dir, f), { recursive: true });
+  const hubMod = await import(path.join(dir, 'tools/hub.mjs'));
+  let added = 0;
+  for (const kind of NEW) {
+    const file = path.join(dir, 'src/data', `${kind}.json`);
+    const json = JSON.parse(fs.readFileSync(file));
+    // 予定どおりの日付で3回分（数字は範囲内の適当な値）を作り、公開データの形にして取り込みの手順を通す
+    const extra = []; let prev = json.draws.at(-1);
+    for (let i = 0; i < 3; i++) {
+      const nx = nextDraw(kind, prev, new Date(Date.parse(`${prev.date}T10:00:00Z`)));
+      const date = new Date(nx.time.getTime() + 9 * 3600e3).toISOString().slice(0, 10);
+      const main = kind === 'miniloto' ? [3, 8, 14, 22, 30] : kind === 'bingo5' ? [2, 7, 12, 17, 22, 27, 32, 37] : kind === 'numbers3' ? [0, i, 7] : [0, 0, i, 9];
+      prev = { n: nx.n, date, main, ...(kind === 'miniloto' ? { bonus: [5] } : {}) }; extra.push(prev);
+    }
+    const body = [...json.draws, ...extra].reverse().map(d => ({ round: d.n, date: d.date, numbers: d.main, bonus: d.bonus || [] }));
+    const r = await hubMod.updateHubKind(kind, json, async () => ({ ok: true, status: 200, text: async () => JSON.stringify(body) }), new Date('2100-01-01T00:00:00Z'));
+    added += r.changed;
+    fs.writeFileSync(file, JSON.stringify(json));
+  }
+  let out = '', code = 0;
+  try { out = execFileSync('node', [path.join(dir, 'tools/test.mjs')], { env: { ...process.env, LOTOJINJA_NESTED: '1' }, stdio: 'pipe' }).toString(); }
+  catch (e) { code = e.status; out = String(e.stdout) + String(e.stderr); }
+  fs.rmSync(dir, { recursive: true, force: true });
+  t('通し：4種類に当せん金なしの新しい回を3回ずつ追記しても、全テストが通る', () => { assert.equal(added, 12); assert.equal(code, 0, out.slice(-1500)); assert.match(out, /すべて合格/); });
+}
 
 // --- 当せん金の書き足しスクリプト set-official.mjs（データのコピーで試す） ---
 {
