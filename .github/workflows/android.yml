@@ -89,6 +89,9 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
+          cores: 4
+          ram-size: 4096M
+          heap-size: 576M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: bash tools/app/emulator-check.sh apk/*-debug.apk emulator-out
@@ -98,5 +101,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -la emulator-out || exit 0
+          find emulator-out -type f -size 0 -delete  # 空のファイルは置けない
           tag="android-native-${{ needs.build.outputs.ver }}"
           gh release upload "$tag" emulator-out/* --clobber
