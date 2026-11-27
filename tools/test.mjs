@@ -8,7 +8,7 @@ import { updateHubKind, checkSequence, checkDraw, MAX_NEW } from './hub.mjs';
 import { loadRecent } from './init-hub-data.mjs';
 import { createHash } from 'crypto';
 import os from 'os';
-import { chooseLine, homeSituation, timeBand, lineDay, checkLines, LINE_KEYS, CHAR_IDS } from '../src/lines.js';
+import { chooseLine, homeSituation, timeBand, lineDay, lineIndex, nextLineChange, checkLines, LINE_KEYS, CHAR_IDS } from '../src/lines.js';
 
 const load = k => JSON.parse(fs.readFileSync(new URL(`../src/data/${k}.json`, import.meta.url))).draws;
 const L6 = load('loto6'), L7 = load('loto7');
@@ -677,21 +677,32 @@ t('ホームの状況：年末年始（12/31〜1/3、日本時間）が一番先
   assert.equal(homeSituation('numbers3', J('2027-01-01T10:00')), 'newyear');
   assert.equal(homeSituation('loto7', J('2027-01-03T23:59'), carry), 'newyear');
   assert.equal(homeSituation('loto6', new Date('2026-12-30T15:00:00Z')), 'newyear'); // UTCでは12/30、日本時間は12/31 0:00
-  assert.equal(homeSituation('loto6', J('2027-01-04T10:00')), 'drawday'); // 1/4(月) は抽せんあり
+  assert.equal(homeSituation('loto6', J('2027-01-04T12:00')), 'drawday'); // 1/4(月) は抽せんあり
   assert.equal(homeSituation('bingo5', J('2026-12-30T12:00')), 'drawday'); // 12/30(水) は抽せんあり
+});
+t('ホームの状況：drawday は抽せん日の 12:00〜18:44 だけ（朝はふつうの順番）', () => {
+  assert.equal(homeSituation('loto6', J('2026-11-26T11:59')), 'noon'); // 11/26(木)・偶数日
+  assert.equal(homeSituation('loto6', J('2026-11-26T12:00')), 'drawday');
+  assert.equal(homeSituation('loto6', J('2026-11-26T08:00')), 'morning');
+  assert.equal(homeSituation('loto6', J('2026-11-26T00:00')), 'night');
+  assert.equal(homeSituation('loto7', J('2026-11-27T09:00')), 'loto7'); // 金・奇数日
+  assert.equal(homeSituation('numbers3', J('2026-11-27T11:59')), 'numbers3');
+  assert.equal(homeSituation('numbers4', J('2026-11-30T10:00')), 'morning'); // 月・偶数日
+  assert.equal(homeSituation('loto6', new Date('2026-11-26T03:00:00Z')), 'drawday'); // UTC 3:00 ＝ 日本時間 12:00
+  assert.equal(homeSituation('loto6', new Date('2026-11-26T02:59:00Z')), 'noon');
 });
 t('ホームの状況：抽せん日の当日 18:44 は drawday、18:46 は過ぎている', () => {
   assert.equal(homeSituation('loto6', J('2026-11-26T18:44')), 'drawday'); // 11/26(木)
   assert.equal(homeSituation('loto6', J('2026-11-26T18:46')), 'night'); // 偶数日なので時間帯
   assert.equal(homeSituation('loto6', J('2026-11-26T18:45')), 'night'); // 抽せん時刻ちょうどはもう前ではない
-  assert.equal(homeSituation('loto6', J('2026-11-26T00:00')), 'drawday');
   assert.equal(homeSituation('loto7', J('2026-11-27T18:44')), 'drawday'); // 金
   assert.equal(homeSituation('loto7', J('2026-11-27T18:46')), 'loto7'); // 奇数日なのでくじ別
   assert.equal(homeSituation('loto6', J('2026-11-27T10:00')), 'loto6'); // ロト6は金曜は抽せんなし
-  assert.equal(homeSituation('miniloto', J('2026-11-24T09:00')), 'drawday'); // 火
-  assert.equal(homeSituation('bingo5', J('2026-11-25T09:00')), 'drawday'); // 水
+  assert.equal(homeSituation('miniloto', J('2026-11-24T15:00')), 'drawday'); // 火
+  assert.equal(homeSituation('bingo5', J('2026-11-25T15:00')), 'drawday'); // 水
   assert.equal(homeSituation('loto6', new Date('2026-11-26T09:44:00Z')), 'drawday'); // UTC 9:44 ＝ 日本時間 18:44
-  assert.equal(homeSituation('loto6', new Date('2026-11-25T16:00:00Z')), 'drawday'); // UTCでは水曜、日本時間は木曜 1:00
+  assert.equal(homeSituation('loto6', new Date('2026-11-25T16:00:00Z')), 'night'); // UTCでは水曜、日本時間は木曜 1:00（12時前）
+  assert.equal(homeSituation('loto6', new Date('2026-11-26T05:00:00Z')), 'drawday'); // 日本時間 木曜 14:00
 });
 t('ホームの状況：ナンバーズは月〜金が抽せん日', () => {
   for (const d of ['2026-11-23', '2026-11-24', '2026-11-25', '2026-11-26', '2026-11-27']) {
@@ -758,6 +769,70 @@ t('オフライン：sw.js がせりふの仕組みと4人分のせりふを保�
   const sw = fs.readFileSync(new URL('../src/sw.js', import.meta.url), 'utf8');
   assert.ok(sw.includes("'lines.js'")); assert.ok(sw.includes('lines/${c}.json'));
   assert.deepEqual(CHAR_IDS, ['miko', 'kannushi', 'kitsune', 'neko']);
+});
+t('newyear：12/31〜1/3 の0時台はその日のあいさつ（12/31 は31番目、1/1〜1/3 は1〜3番目）', () => {
+  assert.equal(lineIndex('newyear', J('2026-12-31T00:00')), 30);
+  assert.equal(lineIndex('newyear', J('2026-12-31T00:59')), 30);
+  assert.equal(lineIndex('newyear', J('2027-01-01T00:00')), 0);
+  assert.equal(lineIndex('newyear', J('2027-01-02T00:30')), 1);
+  assert.equal(lineIndex('newyear', J('2027-01-03T00:00')), 2);
+  assert.equal(lineIndex('newyear', new Date('2026-12-31T15:00:00Z')), 0); // UTCでは12/31、日本時間は1/1 0:00
+  const L = { newyear: seq('年') };
+  assert.equal(chooseLine('newyear', J('2027-01-01T00:10'), L), '年1');
+  assert.equal(chooseLine('newyear', J('2026-12-31T00:10'), L), '年31');
+});
+t('newyear：1時台〜23時台は4〜30番目を時で順に出し、4日間で27個すべてが出る', () => {
+  const seen = new Set();
+  for (const d of ['2026-12-31', '2027-01-01', '2027-01-02', '2027-01-03']) for (let h = 1; h < 24; h++) {
+    const i = lineIndex('newyear', J(`${d}T${String(h).padStart(2, '0')}:00`));
+    assert.ok(i >= 3 && i <= 29, `${d} ${h}時 → ${i}`); seen.add(i);
+  }
+  assert.equal(seen.size, 27);
+  assert.equal(lineIndex('newyear', J('2026-12-31T01:00')), 3); // 12/31 の1時は4番目から
+  assert.equal(lineIndex('newyear', J('2026-12-31T02:00')), 4);
+  assert.equal(lineIndex('newyear', J('2027-01-01T01:00')), 26); // 1/1 は12/31 の続き（23個先）から
+  assert.equal(lineIndex('newyear', J('2027-01-01T04:00')), 29); assert.equal(lineIndex('newyear', J('2027-01-01T05:00')), 3); // 30番目の次は4番目に戻る
+  assert.equal(lineIndex('newyear', J('2026-12-31T01:59')), lineIndex('newyear', J('2026-12-31T01:00'))); // 同じ時の間は同じ
+  assert.equal(lineIndex('newyear', J('2027-01-04T05:00')), 3); // 年末年始以外は日付どおり
+  assert.equal(lineIndex('morning', J('2026-12-31T05:00')), 30); // ほかの状況は年末年始でも日付どおり
+  // 足りないときは予備
+  assert.equal(chooseLine('newyear', J('2026-12-31T05:00'), { newyear: seq('年', 5) }, { fallback: FB }), FB.home[30 % 3]);
+});
+t('ホームの状況：抽せん後、新しい回を取り込むまではキャリーオーバーを出さない', () => {
+  const c = { n: 2158, date: '2026-11-26', carryover: 300000000 }; // 11/26(木)の回まで取り込み済み
+  assert.equal(homeSituation('loto6', J('2026-11-28T08:00'), c), 'carryover');
+  assert.equal(homeSituation('loto6', J('2026-11-30T18:44'), c), 'drawday'); // 次の回 11/30(月)
+  assert.equal(homeSituation('loto6', J('2026-11-30T18:46'), c), 'night'); // 抽せん済み・取り込み待ち（偶数日）
+  assert.equal(homeSituation('loto6', J('2026-12-01T08:00'), c), 'loto6'); // まだ取り込み待ち（奇数日）
+  const after = { n: 2159, date: '2026-11-30', carryover: 100 };
+  assert.equal(homeSituation('loto6', J('2026-11-30T18:46'), after), 'carryover'); // 取り込めたら出す
+  const l7 = { n: 705, date: '2026-11-27', carryover: 1 };
+  assert.equal(homeSituation('loto7', J('2026-12-04T18:44'), l7), 'drawday');
+  assert.equal(homeSituation('loto7', J('2026-12-04T18:45'), l7), 'night'); // 取り込み待ち・偶数日
+  assert.equal(homeSituation('loto7', J('2026-12-04T10:00'), l7), 'carryover');
+});
+t('ホームのせりふの次の境目（5:00・11:00・12:00・17:00・18:45・0:00、日本時間）', () => {
+  const nx = s => nextLineChange(J(s)).getTime();
+  assert.equal(nx('2026-11-28T04:59'), J('2026-11-28T05:00').getTime());
+  assert.equal(nx('2026-11-28T05:00'), J('2026-11-28T11:00').getTime());
+  assert.equal(nx('2026-11-28T11:30'), J('2026-11-28T12:00').getTime());
+  assert.equal(nx('2026-11-28T12:00'), J('2026-11-28T17:00').getTime());
+  assert.equal(nx('2026-11-28T17:00'), J('2026-11-28T18:45').getTime());
+  assert.equal(nx('2026-11-28T18:45'), J('2026-11-29T00:00').getTime());
+  assert.equal(nx('2026-11-28T23:59'), J('2026-11-29T00:00').getTime());
+  assert.equal(nextLineChange(new Date('2026-11-28T14:59:30Z')).getTime(), J('2026-11-29T00:00').getTime());
+  assert.equal(nx('2026-12-31T06:10'), J('2026-12-31T07:00').getTime()); // 年末年始は毎時
+  assert.equal(nx('2027-01-03T23:30'), J('2027-01-04T00:00').getTime());
+  assert.equal(nx('2026-12-30T23:00'), J('2026-12-31T00:00').getTime());
+  // 境目の前後で状況が変わることも確かめる
+  assert.equal(homeSituation('loto6', J('2026-11-26T11:59')), 'noon');
+  assert.equal(homeSituation('loto6', nextLineChange(J('2026-11-26T11:59'))), 'drawday');
+});
+t('予備のせりふ（app.js の CHARS）：福が来る・神託が届く・当たる、と受け取れる言い方をしない', () => {
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const chars = app.slice(app.indexOf('const CHARS = {'), app.indexOf('const imgPath'));
+  for (const w of ['福よ来い', '福が来', '神託がおりて', '当たる', '当たりそう', 'ツイて']) assert.ok(!chars.includes(w), w);
+  assert.ok(!app.includes('PRAY_WORDS'));
 });
 // せりふ係のファイル（src/lines/）が4つそろったら、仕様どおりかを確かめる（そろうまでは飛ばす）
 {

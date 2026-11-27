@@ -4,7 +4,7 @@ import {
   judge, validTicket, nextDraw, frequency, absence, digitFrequency, digitAbsence, ranking, shapeStats, oracle, kaburi,
   winRank, isBigWin, prizeOf, suggestType,
 } from './lotto.js';
-import { chooseLine, homeSituation, linesUrl } from './lines.js';
+import { chooseLine, homeSituation, nextLineChange, linesUrl } from './lines.js';
 
 // ---------- キャラクター ----------
 // せりふは src/lines/<キャラID>.json から出す（選び方は lines.js、仕様は docs/lines-spec.md）。
@@ -13,7 +13,7 @@ import { chooseLine, homeSituation, linesUrl } from './lines.js';
 const CHARS = {
   miko: { name: 'かなえ', role: '見習い巫女', lines: {
     home: ['かなえにおまかせください！最新の結果をお知らせしますね', '神社をぴかぴかにお掃除しました！', 'くじは無理のない範囲で楽しみましょうね'],
-    pray: ['むむむ…神託がおりてきました！'], cutin: ['神楽鈴をシャンシャン…'],
+    pray: ['心をこめて、お祈りしますね'], cutin: ['神楽鈴をシャンシャン…'],
     big: ['すごい！高額の当せんです！おめでとうございます！'], win: ['当せんしています！おめでとうございます！'],
     lose: ['今回ははずれでした。くじは楽しめる範囲で、ですね'] } },
   kannushi: { name: 'あたる', role: '見習い神主', lines: {
@@ -23,12 +23,12 @@ const CHARS = {
     lose: ['今回ははずれだった。楽しめる範囲でいこう'] } },
   kitsune: { name: 'こん', role: '子ぎつねの神様見習い', lines: {
     home: ['こんこん、過去のデータを見るのが大好きこん', '数字の並び、見てるだけで楽しいこん'],
-    pray: ['こんこん…巻物を読み解いてるこん'], cutin: ['こんこん…お祓いするこん'],
+    pray: ['こんこん…巻物をひらいてお祈りするこん'], cutin: ['こんこん…お祓いするこん'],
     big: ['こーん！高額の当せんだこん！'], win: ['当せんしてるこん！おめでとうこん！'],
     lose: ['こん…今回ははずれだこん'] } },
   neko: { name: 'ふく', role: '招き猫の巫女', lines: {
     home: ['いらっしゃいにゃ！最新の結果を見ていくにゃ', 'くじは楽しめる範囲で、にゃ'],
-    pray: ['にゃむにゃむ…お祈り中にゃ'], cutin: ['しゃんしゃん…福よ来いにゃ'],
+    pray: ['にゃむにゃむ…お祈り中にゃ'], cutin: ['しゃんしゃん…笑顔をおまねきにゃ'],
     big: ['高額の当せんにゃ！おめでとうにゃ！'], win: ['当せんしてるにゃ！おめでとうにゃ！'],
     lose: ['にゃ…今回ははずれにゃ'] } },
 };
@@ -210,6 +210,19 @@ function renderHome() {
     </section>`;
   fillChara(say(homeSituation(state.game, new Date(), last)));
   startCountdown(nx.time);
+  armLineTimer(nx.time);
+}
+// 開いたままでも、時間帯・日付の境目でホームのせりふを変える（ふきだしの文字だけ書きかえる）。
+// 抽せん時刻ちょうどの境目は、カウントダウンが画面ごと描き直すので、ここでは待たない（二重にしない）
+function armLineTimer(drawTime) {
+  clearTimeout(armLineTimer.t);
+  const at = nextLineChange();
+  if (at >= drawTime) return;
+  armLineTimer.t = setTimeout(() => {
+    if (state.tab !== 'home' || !state.data[state.game]) return;
+    fillChara(say(homeSituation(state.game, new Date(), draws().at(-1))));
+    armLineTimer(drawTime);
+  }, Math.max(1000, at - Date.now() + 500));
 }
 function startCountdown(target) {
   clearInterval(startCountdown.t);

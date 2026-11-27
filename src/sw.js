@@ -8,7 +8,7 @@ const CHARS = ['miko', 'kannushi', 'kitsune', 'neko'], EXPR = ['normal', 'pray',
 // そのくじを開いたときに下の fetch で保存され、それ以降はオフラインでも見られる（最初の読み込みを重くしないため）
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'lotto.js', 'lines.js', 'manifest.webmanifest', 'assets/icon-192.png', 'data/loto6.json', 'data/loto7.json',
   ...CHARS.flatMap(c => EXPR.map(e => `assets/characters/${c}/${e}.png`))];
-// キャラのせりふ（4人分で数十KB）も最初に保存し、どのキャラに切り替えてもオフラインでせりふが出るようにする。
+// キャラのせりふ（4人分で約150KB、gzip で送ると約30KB）も最初に保存し、どのキャラに切り替えてもオフラインでせりふが出るようにする。
 // 1つ読めなくても入れ直しが止まらないよう、ほかのファイルとは別に1つずつ保存する（読めなければアプリは予備のせりふを使う）
 const LINES = CHARS.map(c => `lines/${c}.json`);
 self.addEventListener('install', e => {

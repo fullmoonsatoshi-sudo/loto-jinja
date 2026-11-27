@@ -141,11 +141,8 @@ export function isDrawDay(kind, now = new Date()) {
   const p = jstParts(now);
   return GAMES[kind].drawDays.includes(p.w) && !isHolidayBreak(p.m, p.d);
 }
-// 日本時間の今日が抽せん日で、まだ抽せん時刻（18:45）前か
-export function isBeforeDrawToday(kind, now = new Date()) {
-  const p = jstParts(now);
-  return isDrawDay(kind, now) && p.h * 60 + p.min < DRAW_HOUR * 60 + DRAW_MIN;
-}
+// 抽せん時刻（日本時間の0時からの分。18:45 → 1125）
+export const DRAW_MINUTE = DRAW_HOUR * 60 + DRAW_MIN;
 
 // 最後に取り込んだ回の日付と今の時刻から、次の抽せんの回と時刻、取り込み待ちの回数を求める
 export function nextDraw(kind, lastDraw, now = new Date()) {

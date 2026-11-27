@@ -63,16 +63,19 @@ main { max-width: 720px; margin: 0 auto; padding: 16px; outline: none; display: 
 .notice.strong { border: 2px solid var(--shu); background: var(--shu-soft); color: var(--ink); font-weight: 700; }
 
 /* ---------- キャラと吹き出し ---------- */
-.shrine { display: grid; grid-template-columns: 136px 1fr; gap: 8px; align-items: end;
+/* せまい画面：キャラの下に、横幅いっぱいのふきだし（40文字が3行ほどに収まる）。広い画面（560px〜）は横並び */
+.shrine { display: grid; grid-template-columns: 1fr; justify-items: center; gap: 12px;
   background: linear-gradient(180deg, var(--gold-soft), var(--card) 70%); }
 .chara { width: 136px; height: 152px; object-fit: contain; object-position: bottom; display: block; }
 .chara.pray { animation: bob 1.2s ease-in-out infinite; }
 .chara.joy { animation: hop .6s ease-out 3; }
 @keyframes bob { 50% { transform: translateY(-4px); } }
 @keyframes hop { 40% { transform: translateY(-16px); } }
-.bubble { position: relative; background: #fff; border: 2px solid var(--ink); border-radius: 16px; padding: 8px 16px; margin-bottom: 32px; font-size: 16px; }
-.bubble::after { content: ""; position: absolute; left: -10px; bottom: 16px; width: 16px; height: 16px; background: #fff;
-  border-left: 2px solid var(--ink); border-bottom: 2px solid var(--ink); transform: rotate(45deg); }
+.bubble { position: relative; justify-self: stretch; background: #fff; border: 2px solid var(--ink); border-radius: 16px; padding: 8px 16px; margin: 0; font-size: 16px;
+  line-break: strict; overflow-wrap: anywhere; }
+/* しっぽ：せまい画面は上（キャラの方）、広い画面は左 */
+.bubble::after { content: ""; position: absolute; left: calc(50% - 8px); top: -10px; width: 16px; height: 16px; background: #fff;
+  border-left: 2px solid var(--ink); border-bottom: 2px solid var(--ink); transform: rotate(135deg); }
 .bubble .who { display: block; font-size: 16px; color: var(--shu); font-weight: 700; }
 
 /* ---------- 数字の玉 ---------- */
@@ -280,8 +283,10 @@ dialog::backdrop { background: rgba(30, 20, 15, .45); }
   .cutin-skip { top: calc(8px + env(safe-area-inset-top)); bottom: auto; left: auto; right: calc(16px + env(safe-area-inset-right)); text-align: right; font-size: 12px; }
 }
 @media (min-width: 560px) {
-  .shrine { grid-template-columns: 168px 1fr; }
+  .shrine { grid-template-columns: 168px 1fr; gap: 8px; align-items: end; justify-items: stretch; }
   .chara { width: 168px; height: 192px; }
+  .bubble { margin-bottom: 32px; }
+  .bubble::after { left: -10px; top: auto; bottom: 16px; transform: rotate(45deg); }
   .schools { grid-template-columns: repeat(4, 1fr); }
   .pad { grid-template-columns: repeat(8, 1fr); }
   .pad.pad5 { grid-template-columns: repeat(5, 1fr); max-width: 400px; }
