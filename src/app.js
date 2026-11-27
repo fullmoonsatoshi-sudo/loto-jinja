@@ -83,7 +83,7 @@ function fmtJst(date) {
 const draws = (game = state.game) => state.data[game].draws;
 const gtype = (game = state.game) => GAMES[game].type;
 const POS_NAMES = { 3: ['百の位', '十の位', '一の位'], 4: ['千の位', '百の位', '十の位', '一の位'] };
-const LINE_NAMES = ['横・上段', '横・中段', '横・下段', '縦・左列', '縦・中列', '縦・右列', '斜め（左上から）', '斜め（右上から）'];
+const LINE_NAMES = ['横（上段）', '横（中段）', '横（下段）', '縦（左列）', '縦（中列）', '縦（右列）', '斜め（左上から）', '斜め（右上から）'];
 const upcoming = (game = state.game) => nextDraw(game, draws(game).at(-1));
 
 function ballsHtml(main, bonus = [], opts = {}) {
@@ -437,7 +437,7 @@ function renderMine() {
       if (type === 'bingo') {
         const ls = bingoLines(t.nums, dr.main);
         balls = boardHtml(t.nums, { small: true, hits: bingoHits(t.nums, dr.main), lines: ls });
-        extra = `<p class="note">そろったライン ${ls.length}本${ls.length ? '：' + ls.map(i => LINE_NAMES[i]).join('・') : ''}</p>`;
+        extra = `<p class="note">そろったライン ${ls.length}本${ls.length ? '：' + ls.map(i => LINE_NAMES[i]).join('、') : ''}</p>`;
       } else if (type === 'numbers') {
         balls = digitsHtml(t.nums, { small: true, hits: numbersHits(t, dr, r) });
       } else {
@@ -447,7 +447,7 @@ function renderMine() {
       res = '<span class="res muted">結果の取り込み待ち</span>';
     }
     return `<div class="entry">
-      <div class="row between"><b>第${t.draw}回${type === 'numbers' ? `<span class="tag ml8">${NUM_TYPES[t.type].name}</span>` : ''}</b>${res}</div>
+      <div class="row between"><b>第${t.draw}回${type === 'numbers' ? `・${NUM_TYPES[t.type].name}` : ''}</b>${res}</div>
       <div class="mt8">${balls}</div>${extra}
       <div class="row end mt8"><button type="button" class="btn ghost" data-del="${t.id}">削除</button></div>
     </div>`;
@@ -585,7 +585,7 @@ function openSettings() {
       <li>18歳以上の方向けのアプリです。くじの購入はできません。</li>
       <li>神託（予想）はお楽しみ機能です。当せん確率は上がりません。</li>
       <li>くじは無理のない範囲で楽しみましょう。</li>
-      <li>当せん番号の出典：ロト6・ロト7はみずほ銀行の公式発表（公開データ jjayck/lotoanaba-data を経由し、公式と照合して取り込み）。ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4は公開データ lotto-data-hub（MITライセンス）を元に取り込み、結果は抽せんの翌朝〜午前中に反映されます。正式な結果は公式発表でご確認ください。取り込み済み：<span id="dataStatus">${dataStatus()}</span>まで</li>
+      <li>当せん番号の出典：ロト6・ロト7はみずほ銀行の公式発表（公開データ jjayck/lotoanaba-data を経由し、公式と照合して取り込み）。ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4は公開データ lotto-data-hub（MITライセンス。元データは loto-life.net）を元に取り込み、結果は抽せんの翌朝〜午前中に反映されます。正式な結果は公式発表でご確認ください。取り込み済み：<span id="dataStatus">${dataStatus()}</span>まで</li>
       <li>登録した番号や誕生日はこの端末の中だけに保存されます。</li>
       <li><a class="tap-link" href="privacy.html">プライバシーポリシー</a></li>
     </ul>

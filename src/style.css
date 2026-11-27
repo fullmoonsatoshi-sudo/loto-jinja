@@ -192,7 +192,6 @@ table.trend-table td .muted { display: block; font-size: 14px; }
 .ntypes .school { min-height: 72px; }
 .schools.ntypes { margin-bottom: 16px; }
 .school[disabled] { opacity: .45; cursor: not-allowed; }
-.ml8 { margin-left: 8px; }
 .entry { border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
 .entry + .entry { margin-top: 8px; }
 .entry .res { font-weight: 800; }
