@@ -1,4 +1,9 @@
-import { GAMES, SCHOOLS, judge, validTicket, nextDraw, frequency, absence, ranking, shapeStats, oracle, kaburi } from './lotto.js';
+import {
+  GAMES, GAME_KEYS, SCHOOLS, schoolDesc, NUM_TYPES, PRIZE_NAMES, numberTypes, prizeKeys, isZorome,
+  CELL_POS, FREE_POS, BINGO_LINES, cellRange, bingoHits, bingoLines,
+  judge, validTicket, nextDraw, frequency, absence, digitFrequency, digitAbsence, ranking, shapeStats, oracle, kaburi,
+  winRank, isBigWin, prizeOf, suggestType,
+} from './lotto.js';
 
 // ---------- キャラクター ----------
 // せりふのルール：当たると期待させない／運で結果が変わると言わない／事実と違うことを言わない
@@ -35,12 +40,17 @@ const store = {
   },
   set(k, v) { try { localStorage.setItem('lotojinja.' + k, JSON.stringify(v)); } catch { /* 保存できない環境では何もしない */ } },
 };
-const isGame = v => v === 'loto6' || v === 'loto7';
+const isGame = v => typeof v === 'string' && Object.hasOwn(GAMES, v);
 const isChar = v => Object.hasOwn(CHARS, v);
 const isDate = v => typeof v === 'string' && (v === '' || /^\d{4}-\d{2}-\d{2}$/.test(v));
 function loadTickets() {
   const list = store.get('tickets', [], Array.isArray);
-  return list.filter(t => t && isGame(t.game) && Number.isInteger(t.draw) && validTicket(t.game, t.nums) && typeof t.id === 'string');
+  return list.filter(t => t && isGame(t.game) && Number.isInteger(t.draw) && validTicket(t.game, t.nums, t.type) && typeof t.id === 'string');
+}
+// 登録中の番号の初期値：ロトは選んだ数字の配列、ビンゴ5は8マス、ナンバーズは桁の数だけ（未選択は null）
+function emptyPick(game) {
+  const g = GAMES[game];
+  return g.type === 'bingo' ? new Array(8).fill(null) : g.type === 'numbers' ? new Array(g.digits).fill(null) : [];
 }
 
 const state = {
@@ -53,8 +63,11 @@ const state = {
   histShown: 50,
   histQuery: '',
   pick: [],
+  pickPos: 0,          // ビンゴ5・ナンバーズ：いま選んでいるマス・桁
+  pickType: 'straight', // ナンバーズ：申込タイプ
   pickDraw: null,
 };
+state.pick = emptyPick(state.game);
 
 const $ = s => document.querySelector(s);
 const view = $('#view');
@@ -68,6 +81,9 @@ function fmtJst(date) {
   return `${j.getUTCMonth() + 1}/${j.getUTCDate()}(${WD[j.getUTCDay()]}) ${pad2(j.getUTCHours())}:${pad2(j.getUTCMinutes())}`;
 }
 const draws = (game = state.game) => state.data[game].draws;
+const gtype = (game = state.game) => GAMES[game].type;
+const POS_NAMES = { 3: ['百の位', '十の位', '一の位'], 4: ['千の位', '百の位', '十の位', '一の位'] };
+const LINE_NAMES = ['横・上段', '横・中段', '横・下段', '縦・左列', '縦・中列', '縦・右列', '斜め（左上から）', '斜め（右上から）'];
 const upcoming = (game = state.game) => nextDraw(game, draws(game).at(-1));
 
 function ballsHtml(main, bonus = [], opts = {}) {
@@ -77,6 +93,43 @@ function ballsHtml(main, bonus = [], opts = {}) {
   const b = bonus.length ? `<span class="bonus-group"><span class="plus">ボーナス</span>${bonus.map(n => `<span class="ball bonus${sm}">${pad2(n)}</span>`).join('')}</span>` : '';
   return `<div class="balls" role="img" aria-label="本数字 ${main.join('、')}${bonus.length ? ' ボーナス ' + bonus.join('、') : ''}">${m}${b}</div>`;
 }
+// ビンゴ5の盤面（3×3、中央は FREE）。hits：マスごとの一致、lines：そろったライン
+function boardHtml(nums, opts = {}) {
+  const hits = opts.hits || [], onLine = new Set((opts.lines || []).flatMap(i => BINGO_LINES[i]));
+  const cells = new Array(9);
+  cells[FREE_POS] = `<span class="cell free${onLine.has(FREE_POS) ? ' line' : ''}">FREE</span>`;
+  CELL_POS.forEach((p, i) => { cells[p] = `<span class="cell${hits[i] ? ' hit' : ''}${onLine.has(p) ? ' line' : ''}">${pad2(nums[i])}</span>`; });
+  const n = nums.map(pad2);
+  const label = `盤面 上段 ${n[0]}、${n[1]}、${n[2]}／中段 ${n[3]}、FREE、${n[4]}／下段 ${n[5]}、${n[6]}、${n[7]}` +
+    (opts.hits ? `（一致 ${hits.filter(Boolean).length}マス）` : '');
+  return `<div class="board${opts.small ? ' sm' : ''}" role="img" aria-label="${label}">${cells.join('')}</div>`;
+}
+// ナンバーズの数字（桁ごと。先頭の0も出す）
+function digitsHtml(digits, opts = {}) {
+  const hits = opts.hits || [];
+  return `<div class="digits" role="img" aria-label="数字 ${digits.join(' ')}${opts.hits ? `（一致 ${hits.filter(Boolean).length}桁）` : ''}">${digits.map((d, i) => `<span class="digit${opts.small ? ' sm' : ''}${hits[i] ? ' hit' : ''}">${d}</span>`).join('')}</div>`;
+}
+// 当せん番号の表示（くじの種類ごと）
+function drawNumsHtml(game, d, opts = {}) {
+  const t = gtype(game);
+  if (t === 'bingo') return boardHtml(d.main, opts);
+  if (t === 'numbers') return digitsHtml(d.main, opts);
+  return ballsHtml(d.main, d.bonus, opts);
+}
+// 等級ごとの口数と当せん金。分からない回は案内だけ
+function prizeTableHtml(game, d) {
+  if (!d.prizes || !d.winners) return '<p class="note">当せん金は公式発表でご確認ください。</p>';
+  const isNum = gtype(game) === 'numbers';
+  const rows = isNum ? prizeKeys(game).map(k => [PRIZE_NAMES[k], d.winners[k], d.prizes[k]]) : d.prizes.map((p, i) => [`${i + 1}等`, d.winners[i], p]);
+  return `<table class="prize"><thead><tr><th>${isNum ? '当せんの種類' : '等級'}</th><th>口数</th><th>1口あたり</th></tr></thead><tbody>${rows.map(([l, w, p]) => `<tr><td>${l}</td><td>${w.toLocaleString('ja-JP')}口</td><td>${prizeText(p)}</td></tr>`).join('')}</tbody></table>`;
+}
+// 結果一覧の1行に出す一番上の当せん
+function topPrizeHtml(game, x) {
+  if (!x.prizes || !x.winners) return '<div class="note m0">当せん金は公式発表でご確認ください</div>';
+  if (gtype(game) === 'numbers') return `<div class="note m0">ストレート ${x.winners.straight}口 ${prizeText(x.prizes.straight)}</div>`;
+  return `<div class="note m0">1等 ${x.winners[0]}口 ${prizeText(x.prizes[0])}</div>`;
+}
+
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2200); }
 const pickLine = lines => lines[Math.floor(Math.random() * lines.length)];
 
@@ -108,22 +161,28 @@ async function loadData(game) {
 function renderHome() {
   const list = draws(), last = list.at(-1), g = GAMES[state.game];
   const nx = upcoming();
-  const prizeRows = last.prizes.map((p, i) => `<tr><td>${i + 1}等</td><td>${last.winners[i].toLocaleString('ja-JP')}口</td><td>${prizeText(p)}</td></tr>`).join('');
+  // キャリーオーバーはロト6・ロト7だけ（データに carryover がある回だけ出す）
   const carry = last.carryover == null ? '' :
     `<p class="carry">キャリーオーバー <b>${last.carryover ? yen(last.carryover) : 'なし'}</b></p>`;
+  const range = `第${last.n + 1}回${nx.pending > 1 ? `〜第${last.n + nx.pending}回` : ''}`;
+  // 公開データから取り込むくじは、結果が抽せんの翌朝に反映される。1回分の待ちはふつうのことなので、強い表示にしない
+  const pendingHtml = !nx.pending ? '' : g.hub && nx.pending === 1
+    ? `<p class="notice" role="status">${range}は抽せん済みです。${g.name}の結果は、抽せんの翌朝（7時ごろ）に反映されます。それまでは公式発表（宝くじ公式サイト）でご確認ください。</p>`
+    : `<p class="notice strong" role="status">${range}は抽せん済みですが、まだ結果を取り込めていません。最新の結果は公式発表（宝くじ公式サイト）でご確認ください。${g.hub ? `（${g.name}の結果は、ふだんは抽せんの翌朝に反映されます）` : ''}</p>`;
   view.innerHTML = `
-    ${nx.pending ? `<p class="notice strong" role="status">第${last.n + 1}回${nx.pending > 1 ? `〜第${last.n + nx.pending}回` : ''}は抽せん済みですが、まだ結果を取り込めていません。最新の結果は公式発表（宝くじ公式サイト）でご確認ください。</p>` : ''}
+    ${pendingHtml}
     ${charaHtml('normal')}
     <section class="card">
       <div class="result-head"><span class="no">${g.name} 第${last.n}回</span><span class="muted">${fmtDate(last.date)}</span></div>
-      ${ballsHtml(last.main, last.bonus)}
+      ${drawNumsHtml(state.game, last)}
       ${carry}
-      <table class="prize"><thead><tr><th>等級</th><th>口数</th><th>1口あたり</th></tr></thead><tbody>${prizeRows}</tbody></table>
+      ${prizeTableHtml(state.game, last)}
       <p class="note">当せん番号は必ず公式発表（宝くじ公式サイト・みずほ銀行）でもご確認ください。</p>
     </section>
-    <section class="card countdown">
+    <section class="card countdown${g.hub ? ' has-note' : ''}">
       <div><div class="muted">次回 第${nx.n}回</div><div>${fmtJst(nx.time)}</div></div>
       <div class="big" id="cd"></div>
+      ${g.hub ? '<div class="cd-note">結果は抽せんの翌朝に反映されます</div>' : ''}
     </section>
     <section class="stack">
       <button class="btn" type="button" data-go="oracle">神託をいただく</button>
@@ -153,7 +212,8 @@ function renderOracle() {
   const o = state.oracle, g = GAMES[state.game], list = draws();
   const birthday = store.get('birthday', '', isDate);
   const schools = Object.entries(SCHOOLS).map(([k, s]) =>
-    `<button type="button" class="school" data-school="${k}" aria-pressed="${o.school === k}"><b>${s.name}</b><span>${s.desc}</span></button>`).join('');
+    `<button type="button" class="school" data-school="${k}" aria-pressed="${o.school === k}"><b>${s.name}</b><span>${schoolDesc(state.game, k)}</span></button>`).join('');
+  const type = gtype();
 
   // 結果は、作ったときと同じくじの種類のときだけ表示する
   const res = o.result && o.result.game === state.game ? o.result : null;
@@ -162,21 +222,19 @@ function renderOracle() {
     const cls = k.score >= 80 ? 'good' : k.score >= 50 ? '' : 'bad';
     return `<div class="ticket">
       <div class="row between"><b>${i + 1}口目</b><span class="tag ${cls}"><span class="nw">かぶりにくさ ${k.score}点</span>・<span class="nw">${k.label}</span></span></div>
-      <div class="mt8">${ballsHtml(t, [], { small: true })}</div>
+      <div class="mt8">${ticketNumsHtml(state.game, t, { small: true })}</div>
+      ${type === 'numbers' ? `<div class="note">申込タイプの例：${NUM_TYPES[suggestType(state.game, t)].name}（${NUM_TYPES[suggestType(state.game, t)].desc}）</div>` : ''}
       <div class="meter ${cls}" aria-hidden="true"><i style="width:${k.score}%"></i></div>
       <div class="note">${k.reasons.map(r => '・' + r).join('<br>')}</div>
       <div class="mt8"><button type="button" class="btn small sub" data-save="${i}">マイ番号に登録</button></div>
     </div>`;
   }).join('') : '';
 
-  const win = state.trend === 'all' ? list.length : 100;
-  const f = frequency(state.game, list, win), a = absence(state.game, list);
-  const maxF = Math.max(...f.slice(1));
-  const hot = ranking(f, 5), cold = ranking(a, 5);
-  const hotSet = new Set(hot.map(x => x.n));
-  const bars = f.slice(1).map((v, i) => `<div class="bar${hotSet.has(i + 1) ? ' hi' : ''}" style="height:${Math.round(v / maxF * 100)}%" title="${i + 1}：${v}回"></div>`).join('');
-  const xs = f.slice(1).map((_, i) => `<span>${(i + 1) % 5 === 0 || i === 0 ? i + 1 : ''}</span>`).join('');
-  const shape = shapeStats(state.game, list);
+  const kaburiNote = type === 'numbers'
+    ? '「かぶりにくさ」は、ゾロ目や123のような並び、誕生日のような月日など、人が選びがちな形を避けているほど高くなります。当せん確率は変わりませんが、当たったときに賞金を分け合う人が少なくなりやすくなります。申込タイプは当たりやすさではなく、当たり方と当せん金の違いです。'
+    : type === 'bingo'
+      ? '「かぶりにくさ」は、前回と同じ数字や、各マスの一番小さい・大きい数字ばかりなど、人が選びがちな形を避けているほど高くなります。当せん確率は変わりませんが、当たったときに賞金を分け合う人が少なくなりやすくなります。'
+      : '「かぶりにくさ」は、誕生日の数字や連番など人が選びがちな形を避けているほど高くなります。当せん確率は変わりませんが、当たったときに賞金を分け合う人が少なくなりやすくなります。';
 
   view.innerHTML = `
     ${charaHtml(o.praying ? 'pray' : 'normal')}
@@ -192,19 +250,64 @@ function renderOracle() {
       <p class="disclaimer">神託は過去のデータを使ったお楽しみ機能です。抽せんは毎回まったくの偶然で決まるため、当せん確率は上がりません。<br><a href="privacy.html">プライバシーポリシー</a></p>
     </section>
     ${tickets ? `<section class="card" id="oracleResult"><h2>${g.name}の神託</h2>${tickets}
-      <p class="note">「かぶりにくさ」は、誕生日の数字や連番など人が選びがちな形を避けているほど高くなります。当せん確率は変わりませんが、当たったときに賞金を分け合う人が少なくなりやすくなります。</p></section>` : ''}
+      <p class="note">${kaburiNote}</p></section>` : ''}
     <section class="card">
       <div class="row between"><h2 class="m0">出現の傾向</h2>
         <div class="seg" role="group" aria-label="集計範囲"><button type="button" data-trend="100" aria-pressed="${state.trend !== 'all'}">直近100回</button><button type="button" data-trend="all" aria-pressed="${state.trend === 'all'}">全${list.length}回</button></div></div>
-      <div class="chart" style="grid-template-columns:repeat(${g.max},1fr)" role="img" aria-label="数字ごとの出現回数">${bars}</div>
-      <div class="chart-x" style="grid-template-columns:repeat(${g.max},1fr)" aria-hidden="true">${xs}</div>
+      ${trendHtml(list)}
+    </section>`;
+  fillChara(o.praying ? pickLine(CHARS[state.char].lines.pray) : (res ? '神託が出ました。気に入った番号は登録しておけますよ' : '流派をえらんで「神託をいただく」を押してくださいね'));
+}
+
+// 出現の傾向（くじの種類ごと）
+function trendHtml(list) {
+  const g = GAMES[state.game], type = gtype();
+  const win = state.trend === 'all' ? list.length : 100;
+  const shape = shapeStats(state.game, list);
+  const shapeNote = (what, oddWhat) => `<p class="note">直近300回の${what}の合計は、${shape.sumLow}〜${shape.sumHigh} に収まる回が多め（真ん中の6割）。${oddWhat}は ${shape.oddTop.join('・')} 個の回が多めです。過去の傾向は、次の回の結果とは関係ありません。</p>`;
+  const chart = (vals, hiSet, label, xs, cls = () => '') => {
+    const maxF = Math.max(1, ...vals.map(x => x.v));
+    return `<div class="chart" style="grid-template-columns:repeat(${vals.length},1fr)" role="img" aria-label="${label}">${vals.map(x => `<div class="bar${hiSet.has(x.n) ? ' hi' : ''}${cls(x.n)}" style="height:${Math.round(x.v / maxF * 100)}%" title="${x.n}：${x.v}回"></div>`).join('')}</div>
+      <div class="chart-x" style="grid-template-columns:repeat(${vals.length},1fr)" aria-hidden="true">${vals.map(x => `<span>${xs(x.n)}</span>`).join('')}</div>`;
+  };
+
+  if (type === 'numbers') {
+    const f = digitFrequency(state.game, list, win), a = digitAbsence(state.game, list);
+    const blocks = f.map((counts, p) => {
+      const hot = ranking(counts, 1, true, 0)[0], cold = ranking(a[p], 1, true, 0)[0];
+      return `<div class="digit-trend"><h3>${POS_NAMES[g.digits][p]}</h3>
+        ${chart(counts.map((v, n) => ({ n, v })), new Set([hot.n]), `${POS_NAMES[g.digits][p]}の数字ごとの出現回数`, n => n)}
+        <p class="note m0">よく出る ${hot.n}（${hot.v}回）・ご無沙汰 ${cold.n}（${cold.v}回出ていない）</p></div>`;
+    }).join('');
+    return `${blocks}${shapeNote('各桁の数字', '奇数の桁の数')}`;
+  }
+
+  const f = frequency(state.game, list, win), a = absence(state.game, list);
+  const vals = f.slice(1).map((v, i) => ({ n: i + 1, v }));
+  if (type === 'bingo') {
+    // マスごとに、よく出る数字とご無沙汰の数字
+    const rows = Array.from({ length: 8 }, (_, i) => {
+      const [lo, hi] = cellRange(i + 1);
+      const sub = arr => arr.map((v, n) => ({ n, v })).filter(x => x.n >= lo && x.n <= hi);
+      const hot = sub(f).sort((x, y) => y.v - x.v || x.n - y.n)[0], cold = sub(a).sort((x, y) => y.v - x.v || x.n - y.n)[0];
+      return { k: i + 1, lo, hi, hot, cold };
+    });
+    const hotSet = new Set(rows.map(r => r.hot.n));
+    return `${chart(vals, hotSet, '数字ごとの出現回数（マスごとに5つずつ）', n => (n - 1) % 5 === 0 ? n : '', n => Math.ceil(n / 5) % 2 === 0 ? ' alt' : '')}
+      <table class="prize trend-table"><thead><tr><th>マス</th><th>よく出る</th><th>ご無沙汰</th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td>マス${r.k}<span class="muted">（${r.lo}〜${r.hi}）</span></td><td>${r.hot.n}（${r.hot.v}回）</td><td>${r.cold.n}（${r.cold.v}回）</td></tr>`).join('')}
+      </tbody></table>
+      <p class="note">「ご無沙汰」のかっこ内は、何回出ていないか。中央のマスは FREE です。</p>
+      ${shapeNote('8個の数字', '奇数の数')}`;
+  }
+  const hot = ranking(f, 5), cold = ranking(a, 5);
+  const hotSet = new Set(hot.map(x => x.n));
+  return `${chart(vals, hotSet, '数字ごとの出現回数', n => n % 5 === 0 || n === 1 ? n : '')}
       <div class="rank mt16">
         <div><h3>よく出る数字</h3><ol>${hot.map(x => `<li>${x.n}（${x.v}回）</li>`).join('')}</ol></div>
         <div><h3>ご無沙汰の数字</h3><ol>${cold.map(x => `<li>${x.n}（${x.v}回出ていない）</li>`).join('')}</ol></div>
       </div>
-      <p class="note">直近300回の本数字の合計は、${shape.sumLow}〜${shape.sumHigh} に収まる回が多め（真ん中の6割）。奇数の数は ${shape.oddTop.join('・')} 個の回が多めです。過去の傾向は、次の回の結果とは関係ありません。</p>
-    </section>`;
-  fillChara(o.praying ? pickLine(CHARS[state.char].lines.pray) : (res ? '神託が出ました。気に入った番号は登録しておけますよ' : '流派をえらんで「神託をいただく」を押してくださいね'));
+      ${shapeNote('本数字', '奇数の数')}`;
 }
 
 // ---------- ご祈祷のカットイン ----------
@@ -285,69 +388,78 @@ async function doOracle() {
 
 // ---------- 画面：マイ番号 ----------
 function saveTickets(list) { store.set('tickets', list); }
-function addTicket(game, nums, drawNo) {
-  const sorted = [...nums].sort((a, b) => a - b);
-  if (!isGame(game) || !validTicket(game, sorted) || !Number.isInteger(drawNo)) { toast('この番号は登録できません'); return false; }
+// ロトは小さい順に並べて保存。ビンゴ5（マス順）・ナンバーズ（桁順）は並び順に意味があるのでそのまま。ナンバーズは申込タイプも保存
+function addTicket(game, nums, drawNo, type) {
+  const g = GAMES[game], isNum = g && g.type === 'numbers';
+  const sorted = g && g.type === 'loto' ? [...nums].sort((a, b) => a - b) : [...nums];
+  if (!isGame(game) || !validTicket(game, sorted, type) || !Number.isInteger(drawNo)) { toast('この番号は登録できません'); return false; }
   const list = loadTickets();
-  if (list.some(t => t.game === game && t.draw === drawNo && t.nums.join() === sorted.join())) { toast('同じ番号がもう登録されています'); return false; }
-  list.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), game, nums: sorted, draw: drawNo, created: Date.now() });
+  if (list.some(t => t.game === game && t.draw === drawNo && t.nums.join() === sorted.join() && (!isNum || t.type === type))) { toast('同じ番号がもう登録されています'); return false; }
+  const item = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), game, nums: sorted, draw: drawNo, created: Date.now() };
+  if (isNum) item.type = type;
+  list.push(item);
   saveTickets(list); return true;
+}
+// 登録した番号の表示（くじの種類ごと）
+function ticketNumsHtml(game, nums, opts = {}) {
+  const t = gtype(game);
+  if (t === 'bingo') return boardHtml(nums, opts);
+  if (t === 'numbers') return digitsHtml(nums, opts);
+  return ballsHtml(nums, [], opts);
+}
+// ナンバーズで光らせる桁：当たりなら当たった桁、はずれならストレート・セットは同じ位置で一致した桁、ミニは下2桁で一致した桁
+function numbersHits(t, dr, result) {
+  if (result === 'mini') return t.nums.map((_, i) => i >= t.nums.length - 2);
+  if (result) return t.nums.map(() => true);
+  if (t.type === 'box') return [];
+  return t.nums.map((d, i) => d === dr.main[i] && (t.type !== 'mini' || i >= t.nums.length - 2));
 }
 
 function renderMine() {
-  const g = GAMES[state.game], list = draws(), last = list.at(-1);
+  const list = draws();
   const nx = upcoming();
   if (state.pickDraw == null) state.pickDraw = nx.n;
   const byNo = new Map(list.map(x => [x.n, x]));
   const mine = loadTickets().filter(t => t.game === state.game).sort((a, b) => b.draw - a.draw || b.created - a.created);
 
-  let best = 0, decided = 0;
+  let best = 0, bestRes = 0, decided = 0;
+  const type = gtype();
   const items = mine.map(t => {
     const dr = byNo.get(t.draw);
-    let res = '<span class="res muted">抽せん待ち</span>', balls = ballsHtml(t.nums, [], { small: true });
+    let res = '<span class="res muted">抽せん待ち</span>', balls = ticketNumsHtml(state.game, t.nums, { small: true }), extra = '';
     if (dr) {
       decided++;
-      const tier = judge(state.game, t.nums, dr);
-      if (tier && (!best || tier < best)) best = tier;
-      res = tier ? `<span class="res win">${tier}等 当せん！ ${dr.prizes[tier - 1] ? yen(dr.prizes[tier - 1]) : '（金額は公式発表で確認）'}</span>` : '<span class="res">はずれ</span>';
-      balls = ballsHtml(t.nums, [], { small: true, hits: t.nums.filter(n => dr.main.includes(n)) });
+      const r = judge(state.game, t.nums, dr, t.type);
+      const rank = winRank(state.game, r);
+      if (rank && (!best || rank < best)) { best = rank; bestRes = r; }
+      const p = prizeOf(state.game, dr, r);
+      res = r ? `<span class="res win">${p.label}${type === 'numbers' ? '' : ' '}当せん！ ${p.amount ? yen(p.amount) : '（金額は公式発表で確認）'}</span>` : '<span class="res">はずれ</span>';
+      if (type === 'bingo') {
+        const ls = bingoLines(t.nums, dr.main);
+        balls = boardHtml(t.nums, { small: true, hits: bingoHits(t.nums, dr.main), lines: ls });
+        extra = `<p class="note">そろったライン ${ls.length}本${ls.length ? '：' + ls.map(i => LINE_NAMES[i]).join('・') : ''}</p>`;
+      } else if (type === 'numbers') {
+        balls = digitsHtml(t.nums, { small: true, hits: numbersHits(t, dr, r) });
+      } else {
+        balls = ballsHtml(t.nums, [], { small: true, hits: t.nums.filter(n => dr.main.includes(n)) });
+      }
     } else if (t.draw < nx.n) {
       res = '<span class="res muted">結果の取り込み待ち</span>';
     }
     return `<div class="entry">
-      <div class="row between"><b>第${t.draw}回</b>${res}</div>
-      <div class="mt8">${balls}</div>
+      <div class="row between"><b>第${t.draw}回${type === 'numbers' ? `<span class="tag ml8">${NUM_TYPES[t.type].name}</span>` : ''}</b>${res}</div>
+      <div class="mt8">${balls}</div>${extra}
       <div class="row end mt8"><button type="button" class="btn ghost" data-del="${t.id}">削除</button></div>
     </div>`;
   }).join('');
 
   const L = CHARS[state.char].lines;
   const expr = best ? 'joy' : decided ? 'sad' : 'normal';
-  const line = best ? (best <= 3 ? L.big[0] : L.win[0]) : decided ? L.lose[0] : '買った番号を登録しておくと、結果が入ったときに自動で確かめますね';
-
-  const padBtns = Array.from({ length: g.max }, (_, i) => i + 1).map(n =>
-    `<button type="button" data-pick="${n}" aria-pressed="${state.pick.includes(n)}" aria-label="${n}">${n}</button>`).join('');
-  // 対象の回：次の次・次回・抽せん済みで未反映の回・取り込み済みの直近10回
-  const nos = [nx.n + 1, nx.n];
-  for (let n = nx.n - 1; n > last.n; n--) nos.push(n);
-  list.slice(-10).reverse().forEach(x => nos.push(x.n));
-  const drawOpts = nos.map(n => {
-    const label = n === nx.n ? '（次回）' : n > nx.n ? '' : n > last.n ? '（抽せん済み・結果待ち）' : '（抽せん済み）';
-    return `<option value="${n}" ${n === state.pickDraw ? 'selected' : ''}>第${n}回${label}</option>`;
-  }).join('');
+  const line = best ? (isBigWin(state.game, bestRes) ? L.big[0] : L.win[0]) : decided ? L.lose[0] : '買った番号を登録しておくと、結果が入ったときに自動で確かめますね';
 
   view.innerHTML = `
     ${charaHtml(expr)}
-    <section class="card">
-      <h2>番号を登録する</h2>
-      <p class="note m0" id="pickInfo">${g.name}は ${g.pick} 個えらびます（1〜${g.max}）。いま ${state.pick.length} 個</p>
-      <div class="pad" role="group" aria-label="数字をえらぶ">${padBtns}</div>
-      <label class="field">対象の回<select id="pickDraw">${drawOpts}</select></label>
-      <div class="row nowrap mt16">
-        <button type="button" class="btn ghost" id="clearPick">クリア</button>
-        <button type="button" class="btn" id="savePick" ${state.pick.length === g.pick ? '' : 'disabled'}>登録する</button>
-      </div>
-    </section>
+    <section class="card" id="pickCard">${pickCardHtml()}</section>
     <section class="card">
       <h2>登録した番号（${mine.length}件）</h2>
       ${items || '<p class="muted">まだ登録がありません。神託の画面からも登録できます。</p>'}
@@ -358,6 +470,78 @@ function renderMine() {
   clearTimeout(renderMine.t);
   renderMine.t = setTimeout(() => { if (state.tab === 'mine') { state.pickDraw = null; render(); } }, Math.max(1000, nx.time - Date.now() + 1000));
 }
+
+// 番号を登録するカード（選ぶたびにこのカードの中だけを書きかえる）
+function pickCardHtml() {
+  const g = GAMES[state.game], list = draws(), last = list.at(-1), nx = upcoming();
+  // 対象の回：次の次・次回・抽せん済みで未反映の回・取り込み済みの直近10回
+  const nos = [nx.n + 1, nx.n];
+  for (let n = nx.n - 1; n > last.n; n--) nos.push(n);
+  list.slice(-10).reverse().forEach(x => nos.push(x.n));
+  const drawOpts = nos.map(n => {
+    const label = n === nx.n ? '（次回）' : n > nx.n ? '' : n > last.n ? '（抽せん済み・結果待ち）' : '（抽せん済み）';
+    return `<option value="${n}" ${n === state.pickDraw ? 'selected' : ''}>第${n}回${label}</option>`;
+  }).join('');
+  const ready = pickReady();
+  const foot = `<label class="field">対象の回<select id="pickDraw">${drawOpts}</select></label>
+      <div class="row nowrap mt16">
+        <button type="button" class="btn ghost" id="clearPick">クリア</button>
+        <button type="button" class="btn" id="savePick" ${ready ? '' : 'disabled'}>登録する</button>
+      </div>`;
+  const type = gtype();
+
+  if (type === 'bingo') {
+    const cells = new Array(9);
+    cells[FREE_POS] = '<span class="pcell free">FREE</span>';
+    CELL_POS.forEach((p, i) => {
+      const [lo, hi] = cellRange(i + 1), v = state.pick[i];
+      cells[p] = `<button type="button" class="pcell${v != null ? ' filled' : ''}" data-cell="${i}" aria-pressed="${state.pickPos === i}" aria-label="マス${i + 1}（${lo}〜${hi}）${v != null ? `：${v}` : '：未選択'}"><b>${v != null ? pad2(v) : '—'}</b><span>${lo}〜${hi}</span></button>`;
+    });
+    const [lo] = cellRange(state.pickPos + 1);
+    const nums = [0, 1, 2, 3, 4].map(j => lo + j).map(n => `<button type="button" data-bnum="${n}" aria-pressed="${state.pick[state.pickPos] === n}" aria-label="${n}">${n}</button>`).join('');
+    const filled = state.pick.filter(v => v != null).length;
+    return `<h2>番号を登録する</h2>
+      <p class="note m0" id="pickInfo">盤面のマスをえらんで、そのマスの数字を1つずつ。8マスえらびます。いま ${filled} マス</p>
+      <div class="pboard mt16" role="group" aria-label="盤面のマス">${cells.join('')}</div>
+      <p class="mt16"><b>マス${state.pickPos + 1}</b>の数字（${lo}〜${lo + 4}）</p>
+      <div class="pad pad5" role="group" aria-label="マス${state.pickPos + 1}の数字をえらぶ">${nums}</div>
+      ${foot}`;
+  }
+  if (type === 'numbers') {
+    const names = POS_NAMES[g.digits];
+    const slots = state.pick.map((v, i) => `<button type="button" class="slot" data-slot="${i}" aria-pressed="${state.pickPos === i}" aria-label="${names[i]}${v != null ? `：${v}` : '：未選択'}"><b>${v ?? '—'}</b><span>${names[i]}</span></button>`).join('');
+    const keys = [...Array(10).keys()].map(d => `<button type="button" data-digit="${d}" aria-label="${d}">${d}</button>`).join('');
+    const full = state.pick.every(v => v != null), zoro = full && isZorome(state.pick);
+    const types = numberTypes(state.game).map(k => {
+      const off = zoro && (k === 'box' || k === 'set');
+      return `<button type="button" class="school ntype" data-ntype="${k}" aria-pressed="${state.pickType === k}" ${off ? 'disabled' : ''}><b>${NUM_TYPES[k].name}</b><span>${NUM_TYPES[k].desc}</span></button>`;
+    }).join('');
+    const warn = zoro && (state.pickType === 'box' || state.pickType === 'set')
+      ? '<p class="notice mt8" role="status">全部同じ数字（ゾロ目）は、ボックス・セットでは申し込めません。ストレート' + (state.game === 'numbers3' ? 'かミニ' : '') + 'をえらんでください。</p>' : '';
+    return `<h2>番号を登録する</h2>
+      <p class="note m0" id="pickInfo">${g.name}は ${g.digits} 桁の数字（0〜9、同じ数字も可）と申込タイプをえらびます</p>
+      <div class="slots mt16" style="grid-template-columns:repeat(${g.digits},1fr)" role="group" aria-label="桁をえらぶ">${slots}</div>
+      <p class="mt16"><b>${names[state.pickPos]}</b>の数字</p>
+      <div class="pad pad5" role="group" aria-label="${names[state.pickPos]}の数字をえらぶ">${keys}</div>
+      <h3>申込タイプ</h3>
+      <div class="schools ntypes">${types}</div>
+      ${warn}
+      ${foot}`;
+  }
+  const padBtns = Array.from({ length: g.max }, (_, i) => i + 1).map(n =>
+    `<button type="button" data-pick="${n}" aria-pressed="${state.pick.includes(n)}" aria-label="${n}">${n}</button>`).join('');
+  return `<h2>番号を登録する</h2>
+      <p class="note m0" id="pickInfo">${g.name}は ${g.pick} 個えらびます（1〜${g.max}）。いま ${state.pick.length} 個</p>
+      <div class="pad" role="group" aria-label="数字をえらぶ">${padBtns}</div>
+      ${foot}`;
+}
+function pickReady() {
+  const g = GAMES[state.game];
+  if (g.type === 'loto') return state.pick.length === g.pick;
+  if (state.pick.some(v => v == null)) return false;
+  return validTicket(state.game, state.pick, g.type === 'numbers' ? state.pickType : undefined);
+}
+function refreshPick() { const c = $('#pickCard'); if (c) c.innerHTML = pickCardHtml(); }
 
 // ---------- 画面：結果一覧 ----------
 function renderHistory() {
@@ -377,14 +561,19 @@ function renderHistList() {
   let list = [...draws()].reverse();
   if (q) list = list.filter(x => String(x.n).includes(q)).sort((a, b) => (String(b.n) === q) - (String(a.n) === q) || b.n - a.n);
   const shown = list.slice(0, state.histShown);
-  box.innerHTML = `<ul class="hist">${shown.map(x => `<li><div class="meta"><b>第${x.n}回</b><span>${fmtDate(x.date)}</span></div>${ballsHtml(x.main, x.bonus, { small: true })}<div class="note m0">1等 ${x.winners[0]}口 ${prizeText(x.prizes[0])}</div></li>`).join('') || '<li class="muted">見つかりませんでした</li>'}</ul>
+  box.innerHTML = `<ul class="hist">${shown.map(x => `<li><div class="meta"><b>第${x.n}回</b><span>${fmtDate(x.date)}</span></div>${drawNumsHtml(state.game, x, { small: true })}${topPrizeHtml(state.game, x)}</li>`).join('') || '<li class="muted">見つかりませんでした</li>'}</ul>
     ${list.length > shown.length ? `<button type="button" class="btn sub mt16" id="more">もっと見る（残り${list.length - shown.length}回）</button>` : ''}`;
 }
 const normalizeDigits = s => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/\D/g, '').slice(0, 5);
 
 // ---------- 設定・同意 ----------
+// 取り込み済みの最新回（読み込んだ種類だけ）
+function dataStatus() {
+  return GAME_KEYS.map(k => `${GAMES[k].name} 第${state.data[k] ? state.data[k].draws.at(-1).n : '-'}回`).join('／');
+}
 function openSettings() {
-  const dlg = $('#settings'), d6 = state.data.loto6, d7 = state.data.loto7;
+  const dlg = $('#settings');
+  if (dlg.open) return;
   const opts = Object.entries(CHARS).map(([k, c]) =>
     `<button type="button" class="char-opt" data-char="${k}" aria-pressed="${state.char === k}"><img src="${imgPath(k, 'normal')}" alt="" data-fallback="${imgPath('miko', 'normal')}"><b>${c.name}</b><span>${c.role}</span></button>`).join('');
   dlg.innerHTML = `<div class="dlg">
@@ -396,7 +585,7 @@ function openSettings() {
       <li>18歳以上の方向けのアプリです。くじの購入はできません。</li>
       <li>神託（予想）はお楽しみ機能です。当せん確率は上がりません。</li>
       <li>くじは無理のない範囲で楽しみましょう。</li>
-      <li>当せん番号の出典：みずほ銀行の公式発表（公開データ jjayck/lotoanaba-data を経由し、公式と照合して取り込み）。取り込み済み：ロト6 第${d6 ? d6.draws.at(-1).n : '-'}回／ロト7 第${d7 ? d7.draws.at(-1).n : '-'}回まで</li>
+      <li>当せん番号の出典：みずほ銀行の公式発表。ロト6・ロト7は公開データ jjayck/lotoanaba-data、ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4は公開データ lotto-data-hub（MITライセンス）を経由し、公式と照合して取り込み。ミニロト・ビンゴ5・ナンバーズの結果は抽せんの翌朝に反映されます。取り込み済み：<span id="dataStatus">${dataStatus()}</span>まで</li>
       <li>登録した番号や誕生日はこの端末の中だけに保存されます。</li>
       <li><a href="privacy.html">プライバシーポリシー</a></li>
     </ul>
@@ -404,6 +593,8 @@ function openSettings() {
   </div>`;
   wireFallback(dlg);
   dlg.showModal();
+  // まだ読み込んでいない種類は、開いてから読み込んで書きかえる
+  Promise.all(GAME_KEYS.map(k => loadData(k).catch(() => null))).then(() => { const el = $('#dataStatus'); if (el) el.textContent = dataStatus(); });
 }
 function showGate() {
   if (store.get('agreed', false, v => v === true)) return;
@@ -445,7 +636,7 @@ const actions = {
   game(t) {
     if (t.dataset.game === state.game) return;
     state.game = t.dataset.game; store.set('game', state.game);
-    state.pick = []; state.pickDraw = null; state.histShown = 50; state.histQuery = '';
+    state.pick = emptyPick(state.game); state.pickPos = 0; state.pickType = 'straight'; state.pickDraw = null; state.histShown = 50; state.histQuery = '';
     render();
   },
   tab(t) { state.tab = t.dataset.tab; window.scrollTo(0, 0); render(); },
@@ -462,7 +653,8 @@ const actions = {
     const res = state.oracle.result; if (!res) return;
     const nums = res.tickets[Number(t.dataset.save)]; if (!nums) return;
     const nx = upcoming(res.game);
-    if (addTicket(res.game, nums, nx.n)) { toast(`第${nx.n}回の番号として登録しました`); t.disabled = true; t.textContent = '登録しました'; }
+    const type = gtype(res.game) === 'numbers' ? suggestType(res.game, nums) : undefined;
+    if (addTicket(res.game, nums, nx.n, type)) { toast(`第${nx.n}回の番号として登録しました`); t.disabled = true; t.textContent = '登録しました'; }
   },
   pick(t) {
     const n = Number(t.dataset.pick), g = GAMES[state.game];
@@ -473,6 +665,22 @@ const actions = {
     $('#pickInfo').textContent = `${g.name}は ${g.pick} 個えらびます（1〜${g.max}）。いま ${state.pick.length} 個`;
     $('#savePick').disabled = state.pick.length !== g.pick;
   },
+  // ビンゴ5：マスをえらぶ／そのマスの数字をえらぶ（えらんだら次の空いているマスへ）
+  cell(t) { state.pickPos = Number(t.dataset.cell); refreshPick(); },
+  bnum(t) {
+    const n = Number(t.dataset.bnum), i = state.pickPos;
+    state.pick[i] = state.pick[i] === n ? null : n;
+    if (state.pick[i] != null) { const next = [...Array(8).keys()].map(j => (i + 1 + j) % 8).find(j => state.pick[j] == null); if (next != null) state.pickPos = next; }
+    refreshPick();
+  },
+  // ナンバーズ：桁をえらぶ／数字を入れる（入れたら次の桁へ）／申込タイプ
+  slot(t) { state.pickPos = Number(t.dataset.slot); refreshPick(); },
+  digit(t) {
+    state.pick[state.pickPos] = Number(t.dataset.digit);
+    if (state.pickPos < state.pick.length - 1) state.pickPos++;
+    refreshPick();
+  },
+  ntype(t) { state.pickType = t.dataset.ntype; refreshPick(); },
   async del(t) {
     if (await confirmDialog('この番号を削除しますか？元には戻せません。')) { saveTickets(loadTickets().filter(x => x.id !== t.dataset.del)); toast('削除しました'); render(); }
   },
@@ -482,11 +690,12 @@ const byId = {
   openSettings: () => openSettings(),
   agree: () => { store.set('agreed', true); $('#gate').close(); },
   doOracle: () => doOracle(),
-  clearPick: () => { state.pick = []; render(); },
+  clearPick: () => { state.pick = emptyPick(state.game); state.pickPos = 0; render(); },
   savePick: () => {
-    const nums = [...state.pick].sort((a, b) => a - b);
+    const isLoto = gtype() === 'loto';
+    const nums = isLoto ? [...state.pick].sort((a, b) => a - b) : [...state.pick];
     const drawNo = Number($('#pickDraw').value);
-    if (addTicket(state.game, nums, drawNo)) { state.pick = []; toast(`第${drawNo}回の番号として登録しました`); render(); }
+    if (addTicket(state.game, nums, drawNo, gtype() === 'numbers' ? state.pickType : undefined)) { state.pick = emptyPick(state.game); state.pickPos = 0; toast(`第${drawNo}回の番号として登録しました`); render(); }
   },
   more: () => { state.histShown += 50; renderHistList(); },
 };
@@ -510,6 +719,7 @@ document.addEventListener('input', e => {
 document.addEventListener('compositionend', e => { if (e.target.id === 'histQ') e.target.dispatchEvent(new Event('input', { bubbles: true })); });
 
 // ---------- 起動 ----------
-Promise.all([loadData('loto6').catch(() => null), loadData('loto7').catch(() => null)]).finally(render);
+// 最初は選んでいるくじのデータだけを読み込む（ほかの種類は切り替えたときに読み込む）
+render();
 showGate();
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});

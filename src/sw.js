@@ -5,6 +5,7 @@ const CACHE = 'lotojinja';
 const CHARS = ['miko', 'kannushi', 'kitsune', 'neko'], EXPR = ['normal', 'pray', 'joy', 'sad', 'oharai1', 'oharai2'];
 // キャラの絵も最初に保存しておき、オフラインでもカットインやキャラが出るようにする
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'lotto.js', 'manifest.webmanifest', 'assets/icon-192.png', 'data/loto6.json', 'data/loto7.json',
+  'data/miniloto.json', 'data/bingo5.json', 'data/numbers3.json', 'data/numbers4.json',
   ...CHARS.flatMap(c => EXPR.map(e => `assets/characters/${c}/${e}.png`))];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

@@ -1,10 +1,14 @@
-// 公式（みずほ銀行）の回別CSVから、新しい回を src/data/*.json に追記する。
-// 使い方：node tools/update-data.mjs   （GitHub Actions などネットにつながる場所で実行）
+// 新しい回を src/data/*.json に追記する。
+// - ロト6・ロト7：公式（みずほ銀行）の回別CSV。拒否されたら予備の公開データ（tools/mirror.mjs）
+// - ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4：公開データ lotto-data-hub（tools/hub.mjs。手元の直近20回と一致したときだけ）
+// 使い方：node tools/update-data.mjs [loto|hub]   （省略で両方。GitHub Actions などネットにつながる場所で実行）
+// 終了コード：0=成功、1=ロト6・ロト7の取り込みに失敗、3=新しい4種類の取り込みに失敗（ロト6・ロト7は成功）
 // 読み取りの中身は tools/csv.mjs。実物のCSVを使ったテストは tools/test.mjs。
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { CSV_GAMES, parseCsv, csvUrl } from './csv.mjs';
 import { newDrawsFromMirror } from './mirror.mjs';
+import { HUB_KINDS, updateHubKind } from './hub.mjs';
 
 const dec = new TextDecoder('shift_jis');
 
@@ -46,16 +50,26 @@ export async function updateKind(kind, json, fetchImpl = fetch) {
   return { changed, source: '公式（みずほ銀行）' };
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// 種類ごとに取り込んで保存する。失敗した種類があれば true を返す（ほかの種類は続ける）
+async function runKinds(kinds, update) {
   let failed = false;
-  for (const kind of Object.keys(CSV_GAMES)) {
+  for (const kind of kinds) {
     const file = new URL(`../src/data/${kind}.json`, import.meta.url);
     const json = JSON.parse(fs.readFileSync(file));
     let changed = 0, source = '';
-    try { ({ changed, source } = await updateKind(kind, json)); }
-    catch (e) { console.error(kind, e.message); failed = true; }
+    try { ({ changed, source } = await update(kind, json)); }
+    catch (e) { console.error(`取り込み失敗：${kind}`, e.message); failed = true; }
     if (changed) { json.updated = new Date().toISOString(); fs.writeFileSync(file, JSON.stringify(json)); }
     console.log(kind, `更新 ${changed} 件`, '最新 第' + json.draws.at(-1).n + '回', source);
   }
-  if (failed) process.exit(1);
+  return failed;
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const only = process.argv[2];
+  if (only && !['loto', 'hub'].includes(only)) { console.error('使い方：node tools/update-data.mjs [loto|hub]'); process.exit(2); }
+  const lotoFailed = only === 'hub' ? false : await runKinds(Object.keys(CSV_GAMES), (k, j) => updateKind(k, j));
+  const hubFailed = only === 'loto' ? false : await runKinds(HUB_KINDS, (k, j) => updateHubKind(k, j));
+  if (lotoFailed) process.exit(1);
+  if (hubFailed) { console.error('ミニロト・ビンゴ5・ナンバーズの取り込みに失敗した種類があります（ロト6・ロト7は取り込み済み）'); process.exit(3); }
 }

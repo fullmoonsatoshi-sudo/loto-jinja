@@ -1,5 +1,9 @@
 # 当せん番号の自動取り込み と アプリの公開（GitHub Pages）
-# - 抽せん日（月・木・金）の夜 19:00〜23:30 に30分おき＋翌朝7:00：公式CSVから新しい回を取り込み、変化があれば保存して公開しなおす
+# - 抽せん日（月・木・金）の夜 19:00〜23:30 に30分おき：ロト6・ロト7を公式CSV（拒否されたら予備の公開データ）から取り込む
+# - 月〜金の抽せんの翌朝 6:00・7:00：ミニロト（火）・ビンゴ5（水）・ナンバーズ3/4（月〜金）を公開データ lotto-data-hub から取り込む
+#   （公開データは日本時間の翌朝5時台に更新される。ロト6・ロト7の翌朝7:00の分もこの時刻に含む）
+# - 変化があれば保存して公開しなおす。新しい4種類の取り込みに失敗しても、ロト6・ロト7の取り込みと公開は続け、
+#   最後に「新しい4種類の取り込み失敗」ジョブを失敗にして分かるようにする
 # - main にコードが入ったとき：テストして公開
 name: 更新と公開
 on:
@@ -7,7 +11,7 @@ on:
     branches: [main]
   schedule:
     - cron: '0,30 10-14 * * 1,4,5'  # 日本時間 19:00〜23:30（月・木・金）
-    - cron: '0 22 * * 1,4,5'        # 日本時間 翌朝 7:00
+    - cron: '0 21,22 * * 1-5'       # 日本時間 翌朝 6:00・7:00（火〜土の朝。月〜金の抽せんの翌朝）
   workflow_dispatch:
 permissions:
   contents: write
@@ -19,13 +23,20 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      hub: ${{ steps.hub.outcome }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - name: 当せん番号を取り込む（定期実行・手動実行のとき）
+      - name: 当せん番号を取り込む：ロト6・ロト7（定期実行・手動実行のとき）
         if: github.event_name != 'push'
-        run: node tools/update-data.mjs
+        run: node tools/update-data.mjs loto
+      - name: 当せん番号を取り込む：ミニロト・ビンゴ5・ナンバーズ（失敗してもロト6・ロト7の公開は続ける）
+        id: hub
+        if: github.event_name != 'push'
+        continue-on-error: true
+        run: node tools/update-data.mjs hub
       - name: テスト
         run: node tools/test.mjs
       - name: 変化があれば保存
@@ -47,3 +58,12 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+  hub-failed:
+    # 新しい4種類の取り込みに失敗したときだけ、公開のあとでこのジョブを失敗にする（実行結果が赤くなり、ログで分かる）
+    needs: [build, deploy]
+    if: always() && needs.build.outputs.hub == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "ミニロト・ビンゴ5・ナンバーズの取り込みに失敗しました。build ジョブの「ミニロト・ビンゴ5・ナンバーズ」の手順のログを見てください。"
+          exit 1

@@ -47,9 +47,9 @@ h1, h2, h3 { line-height: 1.3; }
   border-left: 4px solid #fff; border-right: 4px solid #fff; border-top: 3px solid #fff; }
 .icon-btn { background: rgba(255,255,255,.16); border: 0; border-radius: 999px; padding: 0 16px; min-height: 44px; color: #fff; font-size: 16px; }
 
-/* ---------- くじ切り替え ---------- */
-.game-switch { display: flex; margin: 16px 16px 0; background: var(--line); border-radius: 999px; padding: 4px; }
-.game-switch button { flex: 1; border: 0; background: transparent; border-radius: 999px; min-height: 44px; font-weight: 700; color: var(--ink-soft); }
+/* ---------- くじ切り替え（6種類。小さい画面では3つずつ2段、広い画面では1段） ---------- */
+.game-switch { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 16px 16px 0; background: var(--line); border-radius: 24px; padding: 4px; }
+.game-switch button { border: 0; background: transparent; border-radius: 999px; min-height: 44px; padding: 0 4px; font-weight: 700; color: var(--ink-soft); white-space: nowrap; font-size: 16px; }
 .game-switch button[aria-selected="true"] { background: var(--card); color: var(--shu); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
 
 main { max-width: 720px; margin: 0 auto; padding: 16px; outline: none; display: grid; gap: 16px; }
@@ -83,6 +83,24 @@ main { max-width: 720px; margin: 0 auto; padding: 16px; outline: none; display: 
 .ball.bonus { border-color: var(--gold-bright); color: var(--gold); border-style: dashed; }
 .ball.hit { background: var(--shu); color: #fff; }
 .ball.sm { width: 32px; height: 32px; font-size: 16px; }
+
+/* ---------- ビンゴ5の盤面 ---------- */
+.board { display: inline-grid; grid-template-columns: repeat(3, 48px); gap: 4px; }
+.board .cell { width: 48px; height: 48px; border-radius: 8px; display: grid; place-items: center; font-weight: 800; font-size: 18px;
+  border: 2px solid var(--shu); color: var(--shu); background: var(--card); font-variant-numeric: tabular-nums; }
+.board .cell.free { border-color: var(--gold-bright); color: var(--gold); background: var(--gold-soft); font-size: 12px; letter-spacing: .04em; }
+.board .cell.hit { background: var(--shu); color: #fff; }
+.board .cell.line { box-shadow: 0 0 0 3px var(--gold-bright); }
+.board.sm { grid-template-columns: repeat(3, 40px); gap: 4px; }
+.board.sm .cell { width: 40px; height: 40px; font-size: 16px; }
+.board.sm .cell.free { font-size: 10px; }
+
+/* ---------- ナンバーズの数字（桁ごと） ---------- */
+.digits { display: flex; gap: 8px; }
+.digit { width: 40px; height: 48px; border-radius: 8px; display: grid; place-items: center; font-weight: 800; font-size: 24px;
+  border: 2px solid var(--shu); color: var(--shu); background: var(--card); font-variant-numeric: tabular-nums; }
+.digit.sm { width: 32px; height: 40px; font-size: 20px; }
+.digit.hit { background: var(--shu); color: #fff; }
 .plus { color: var(--ink-soft); font-size: 16px; }
 
 .result-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
@@ -92,9 +110,12 @@ main { max-width: 720px; margin: 0 auto; padding: 16px; outline: none; display: 
 table.prize { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 16px; font-variant-numeric: tabular-nums; }
 table.prize th, table.prize td { padding: 8px 4px; border-bottom: 1px solid var(--line); text-align: right; }
 table.prize th:first-child, table.prize td:first-child { text-align: left; }
+table.prize th:not(:first-child), table.prize td:not(:first-child) { white-space: nowrap; }
 
 .countdown { display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--shu-soft); border-color: #EFC9C3; }
 .countdown > div:first-child { min-width: 0; }
+.countdown.has-note { flex-wrap: wrap; row-gap: 8px; }
+.countdown .cd-note { flex-basis: 100%; color: var(--ink-soft); }
 .countdown .big { font-size: 20px; font-weight: 800; color: var(--shu); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ---------- ボタン ---------- */
@@ -136,7 +157,13 @@ input[type="date"], input[type="text"], select { font: inherit; min-height: 48px
 .seg button[aria-pressed="true"] { background: var(--ink); color: #fff; }
 .chart { display: grid; gap: 2px; align-items: end; height: 144px; margin-top: 16px; }
 .chart .bar { background: #CFC5BA; border-radius: 3px 3px 0 0; min-height: 2px; }
+.chart .bar.alt { background: #DFD6CC; }
 .chart .bar.hi { background: var(--shu); }
+.digit-trend + .digit-trend { margin-top: 16px; }
+.digit-trend h3 { margin: 16px 0 0; }
+.digit-trend .chart { height: 96px; margin-top: 8px; }
+table.trend-table th, table.trend-table td { text-align: left; }
+table.trend-table td .muted { display: block; font-size: 14px; }
 .chart-x { display: grid; gap: 2px; font-size: 12px; color: var(--ink-soft); text-align: center; margin-top: 4px; font-variant-numeric: tabular-nums; }
 .rank { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .rank h3 { margin-top: 0; }
@@ -146,6 +173,25 @@ input[type="date"], input[type="text"], select { font: inherit; min-height: 48px
 .pad { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 16px 0; }
 .pad button { min-height: 48px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; }
 .pad button[aria-pressed="true"] { background: var(--shu); color: #fff; border-color: var(--shu); }
+.pad.pad5 { grid-template-columns: repeat(5, 1fr); margin: 8px 0 16px; }
+/* ビンゴ5：登録用の盤面（マスを押してえらぶ） */
+.pboard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 320px; }
+.pcell { min-height: 64px; border-radius: 16px; border: 2px solid var(--line); background: var(--card); display: grid; place-items: center; align-content: center; padding: 4px; }
+.pcell b { font-size: 20px; line-height: 1.2; font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+.pcell span { font-size: 14px; color: var(--ink-soft); }
+.pcell.filled b { color: var(--shu); }
+.pcell[aria-pressed="true"] { border-color: var(--shu); background: var(--shu-soft); }
+.pcell.free { border-color: var(--gold-bright); background: var(--gold-soft); color: var(--gold); font-weight: 700; font-size: 14px; }
+/* ナンバーズ：登録用の桁 */
+.slots { display: grid; gap: 8px; max-width: 320px; }
+.slot { min-height: 72px; border-radius: 16px; border: 2px solid var(--line); background: var(--card); display: grid; place-items: center; align-content: center; padding: 4px; }
+.slot b { font-size: 28px; line-height: 1.2; color: var(--shu); font-variant-numeric: tabular-nums; }
+.slot span { font-size: 14px; color: var(--ink-soft); }
+.slot[aria-pressed="true"] { border-color: var(--shu); background: var(--shu-soft); }
+.ntypes .school { min-height: 72px; }
+.schools.ntypes { margin-bottom: 16px; }
+.school[disabled] { opacity: .45; cursor: not-allowed; }
+.ml8 { margin-left: 8px; }
 .entry { border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
 .entry + .entry { margin-top: 8px; }
 .entry .res { font-weight: 800; }
@@ -238,6 +284,11 @@ dialog::backdrop { background: rgba(30, 20, 15, .45); }
   .chara { width: 168px; height: 192px; }
   .schools { grid-template-columns: repeat(4, 1fr); }
   .pad { grid-template-columns: repeat(8, 1fr); }
+  .pad.pad5 { grid-template-columns: repeat(5, 1fr); max-width: 400px; }
+  .ntypes.schools { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 640px) {
+  .game-switch { grid-template-columns: repeat(6, 1fr); border-radius: 999px; }
 }
 @media (prefers-reduced-motion: reduce) { .chara { animation: none !important; } #toast { transition: none; } }
 

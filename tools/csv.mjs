@@ -4,10 +4,22 @@
 //   本数字,13,20,22,34,38,39,ボーナス数字,33
 //   １等,該当なし,該当なし ／ ２等,4口,17288100円 …（「１等」の数字は全角）
 //   キャリーオーバー,233461295円
+// CSV_GAMES は、公式CSV（と予備の jjayck/lotoanaba-data）から自動で取り込むくじ（ロト6・ロト7）
 export const CSV_GAMES = {
   loto6: { prefix: 'A102', pick: 6, bonus: 1, tiers: 5, max: 43 },
   loto7: { prefix: 'A103', pick: 7, bonus: 2, tiers: 6, max: 37 },
 };
+// ミニロトの公式CSVもロトと同じ形（キャリーオーバーの行は無い）
+const LOTO_CSV = { ...CSV_GAMES, miniloto: { prefix: 'A101', pick: 5, bonus: 1, tiers: 4, max: 31 } };
+// 公式CSVのURL（ミニロト・ビンゴ5・ナンバーズも）。ナンバーズは3と4が1ファイル
+const OFFICIAL_PATH = {
+  loto6: 'loto/loto6/csv/A102', loto7: 'loto/loto7/csv/A103', miniloto: 'loto/miniloto/csv/A101',
+  bingo5: 'bingo/bingo5/csv/A104', numbers: 'numbers/csv/A100',
+};
+export function officialCsvUrl(kind, n) {
+  const k = kind.startsWith('numbers') ? 'numbers' : kind;
+  return `https://www.mizuhobank.co.jp/retail/takarakuji/${OFFICIAL_PATH[k]}${String(n).padStart(4, '0')}.CSV`;
+}
 
 // 全角数字を半角に
 const half = s => String(s).replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
@@ -26,15 +38,23 @@ export function toIsoDate(text) {
   return null;
 }
 
-export function parseCsv(kind, text) {
-  const g = CSV_GAMES[kind];
-  const lines = half(text).split(/\r?\n/).map(l => l.split(',').map(c => c.trim())).filter(l => l.join('') !== '');
-
+const toLines = text => half(text).split(/\r?\n/).map(l => l.split(',').map(c => c.trim())).filter(l => l.join('') !== '');
+// 「第1414回ミニロト,…,令和8年11月24日,…」の行から回と日付。name が違う種類のCSVならエラー
+function readHead(lines, name) {
   const head = lines.find(l => /^第\d+回/.test(l[0]));
   if (!head) throw new Error('回の行が見つかりません');
+  if (name && !head[0].includes(name)) throw new Error(`${name}のCSVではありません`);
   const n = Number(head[0].match(/^第(\d+)回/)[1]);
   const date = toIsoDate(head.join(','));
   if (!date) throw new Error('抽せん日が読めません');
+  return { n, date };
+}
+
+export function parseCsv(kind, text) {
+  const g = LOTO_CSV[kind];
+  if (!g) throw new Error(`くじの種類が違います：${kind}`);
+  const lines = toLines(text);
+  const { n, date } = readHead(lines, kind === 'miniloto' ? 'ミニロト' : null);
 
   const mainLine = lines.find(l => l[0] === '本数字');
   if (!mainLine) throw new Error('本数字の行が見つかりません');
@@ -57,7 +77,58 @@ export function parseCsv(kind, text) {
   const all = [...main, ...bonus];
   if (main.length !== g.pick || bonus.length !== g.bonus || new Set(all).size !== all.length || all.some(x => x < 1 || x > g.max))
     throw new Error(`数字の検査に失敗（第${n}回）`);
+  if (kind === 'miniloto') return { n, date, main, bonus, winners, prizes }; // ミニロトにキャリーオーバーは無い
   return { n, date, main, bonus, winners, prizes, carryover };
+}
+
+// 口数・金額は行の最後の2つ（「68口,84700円」。該当なしは 0）
+function countAndPrize(row) {
+  if (!row || row.length < 3) throw new Error('口数・金額の行が読めません');
+  const w = row.at(-2), p = row.at(-1);
+  const ok = s => /^(\d+)(口|円)$/.test(s) || s === '該当なし';
+  if (!ok(w) || !ok(p)) throw new Error(`口数・金額が読めません：${row.join(',')}`);
+  return [num(w), num(p)];
+}
+
+// ビンゴ5：「ビンゴ5抽せん数字,03,09,…」（マス順に8個）と 1等〜7等
+export function parseBingo5Csv(text) {
+  const lines = toLines(text);
+  const { n, date } = readHead(lines, 'ビンゴ5');
+  const row = lines.find(l => /抽せん数字$/.test(l[0]));
+  if (!row) throw new Error('抽せん数字の行が見つかりません');
+  const main = row.slice(1).filter(c => c !== '').map(num);
+  if (main.length !== 8 || main.some((x, i) => !(x >= 5 * i + 1 && x <= 5 * i + 5))) throw new Error(`数字の検査に失敗（第${n}回）`);
+  const winners = [], prizes = [];
+  for (let t = 1; t <= 7; t++) {
+    const [w, p] = countAndPrize(lines.find(l => l[0] === `${t}等`));
+    winners.push(w); prizes.push(p);
+  }
+  return { n, date, main, winners, prizes };
+}
+
+// ナンバーズ：1ファイルに3と4。それぞれ { main:[各桁], winners:{straight,…}, prizes:{…} }
+const NUM_ROWS = { straight: 'ストレート', box: 'ボックス', setStraight: 'セット（ストレート）', setBox: 'セット（ボックス）', mini: 'ミニ' };
+export function parseNumbersCsv(text) {
+  const lines = toLines(text);
+  const { n, date } = readHead(lines, 'ナンバーズ');
+  const out = { n, date };
+  for (const digits of [3, 4]) {
+    const start = lines.findIndex(l => l[0] === `ナンバーズ${digits}抽せん数字`);
+    if (start < 0) throw new Error(`ナンバーズ${digits}の抽せん数字が見つかりません`);
+    const raw = lines[start][1] || '';
+    if (!new RegExp(`^\\d{${digits}}$`).test(raw)) throw new Error(`ナンバーズ${digits}の数字が読めません：${raw}`);
+    const end = lines.findIndex((l, i) => i > start && l[0] === '販売実績額');
+    const section = lines.slice(start + 1, end < 0 ? undefined : end);
+    const winners = {}, prizes = {};
+    for (const [key, label] of Object.entries(NUM_ROWS)) {
+      if (key === 'mini' && digits === 4) continue;
+      const row = section.find(l => l[0] === label);
+      if (!row) throw new Error(`ナンバーズ${digits}の${label}の行が見つかりません`);
+      [winners[key], prizes[key]] = countAndPrize(row);
+    }
+    out[`numbers${digits}`] = { main: [...raw].map(Number), winners, prizes };
+  }
+  return out;
 }
 
 export function csvUrl(kind, n) {
