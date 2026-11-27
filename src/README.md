@@ -16,7 +16,7 @@ npx serve .
 
 ## 当せん番号の更新
 `node tools/update-data.mjs`（ロト6・ロト7は公式の回別CSV〔だめなら予備の公開データ〕、ミニロト・ビンゴ5・ナンバーズは公開データ lotto-data-hub から新しい回を追記。ネットにつながる場所で実行。`loto` か `hub` を付けると片方だけ）
-GitHub（fullmoonsatoshi-sudo/loto-jinja）では `.github/workflows/deploy.yml` が、ロト6・ロト7の抽せん日の夜（19:00〜23:30 に30分おき）と、月〜金の抽せんの翌朝6時〜10時（1時間おき）と毎日12時・15時・18時（ミニロト・ビンゴ5・ナンバーズだけ）に自動で取り込み、公開ページも更新します。
+GitHub（fullmoonsatoshi-sudo/loto-jinja）では `.github/workflows/deploy.yml` が、ロト6・ロト7の抽せん日の夜（19:07〜23:37 に30分おき）と、月〜金の抽せんの翌朝6時〜10時の7分（1時間おき）と毎日12:07・15:07・18:07（ミニロト・ビンゴ5・ナンバーズだけ）に自動で取り込み、公開ページも更新します。
 当せん金の書き足し：`node tools/set-official.mjs <種類> <公式CSV>`（詳しくは docs/spec.md の 6-2）
 
 ## Android アプリ（Google Play）

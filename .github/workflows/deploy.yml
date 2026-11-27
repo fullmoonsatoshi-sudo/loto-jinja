@@ -1,21 +1,22 @@
 # 当せん番号の自動取り込み と アプリの公開（GitHub Pages）
-# - 抽せん日（月・木・金）の夜 19:00〜23:30 に30分おき：ロト6・ロト7を公式CSV（拒否されたら予備の公開データ）から取り込む
-# - 月〜金の抽せんの翌朝 6:00〜10:00 に1時間おき：ミニロト（火）・ビンゴ5（水）・ナンバーズ3/4（月〜金）を公開データ lotto-data-hub から取り込む
+# - 抽せん日（月・木・金）の夜 19:07〜23:37 に30分おき：ロト6・ロト7を公式CSV（拒否されたら予備の公開データ）から取り込む
+# - 月〜金の抽せんの翌朝 6:07〜10:07 に1時間おき：ミニロト（火）・ビンゴ5（水）・ナンバーズ3/4（月〜金）を公開データ lotto-data-hub から取り込む
 #   （公開データの更新は日本時間0時〜8時ごろとばらつく。ロト6・ロト7の翌朝7:00の分もこの時刻に含む）
 # - 変化があれば保存して公開しなおす。新しい4種類は、取り込みに失敗しても、取り込んだあとのテストが通らなくても
 #   （そのときは新しい4種類の取り込みを取り消す）、ロト6・ロト7の取り込みと公開は続け、
 #   最後に「新しい4種類の取り込み失敗」ジョブを失敗にして分かるようにする
-# - 毎日 12:00・15:00・18:00（日本時間、週末も）：公開データの更新が遅れた日のため、新しい4種類だけを取り込む（ロト6・ロト7は取り込まない）
+# - 毎日 12:07・15:07・18:07（日本時間、週末も）：公開データの更新が遅れた日のため、新しい4種類だけを取り込む（ロト6・ロト7は取り込まない）
 # - main にコードが入ったとき：テストして公開
+# ※ 定期実行の分は 0・30 ちょうどを避けて 7・37 にしている（毎時0分ちょうどは GitHub が混んで遅れたり飛ばされたりするため）
 name: 更新と公開
 on:
   push:
     branches: [main]
   schedule:
-    - cron: '0,30 10-14 * * 1,4,5'  # 日本時間 19:00〜23:30（月・木・金）
-    - cron: '0 21,22,23 * * 1-5'    # 日本時間 翌朝 6:00・7:00・8:00（火〜土の朝。月〜金の抽せんの翌朝）
-    - cron: '0 0,1 * * 2-6'         # 日本時間 翌朝 9:00・10:00（火〜土）
-    - cron: '0 3,6,9 * * *'         # 日本時間 毎日 12:00・15:00・18:00（新しい4種類だけ。この値は下の if と同じにする）
+    - cron: '7,37 10-14 * * 1,4,5'  # 日本時間 19:07〜23:37（月・木・金）
+    - cron: '7 21,22,23 * * 1-5'    # 日本時間 翌朝 6:07・7:07・8:07（火〜土の朝。月〜金の抽せんの翌朝）
+    - cron: '7 0,1 * * 2-6'         # 日本時間 翌朝 9:07・10:07（火〜土）
+    - cron: '7 3,6,9 * * *'         # 日本時間 毎日 12:07・15:07・18:07（新しい4種類だけ。この値は下の if と同じにする）
   workflow_dispatch:
 permissions:
   contents: write
@@ -34,7 +35,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - name: 当せん番号を取り込む：ロト6・ロト7（定期実行・手動実行のとき。新しい4種類だけの時刻は除く）
-        if: github.event_name != 'push' && github.event.schedule != '0 3,6,9 * * *'
+        if: github.event_name != 'push' && github.event.schedule != '7 3,6,9 * * *'
         run: node tools/update-data.mjs loto
       - name: 当せん番号を取り込む：ミニロト・ビンゴ5・ナンバーズ（失敗してもロト6・ロト7の公開は続ける）
         id: hub
@@ -60,7 +61,15 @@ jobs:
           git config user.name "lotojinja-bot"
           git config user.email "lotojinja-bot@users.noreply.github.com"
           git add src/data
-          if git diff --cached --quiet; then echo "新しい回はありません"; else git commit -m "当せん番号を更新" && git push; fi
+          if git diff --cached --quiet; then echo "新しい回はありません"; exit 0; fi
+          git commit -m "当せん番号を更新"
+          # ほかの push と重なると rejected になるので、取り込み直してから push し、失敗したら数回やり直す
+          for i in 1 2 3 4 5; do
+            if git pull --rebase origin main && git push origin HEAD:main; then echo "保存しました"; exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            echo "push に失敗（${i}回目）。少し待ってやり直します"; sleep $((i * 10))
+          done
+          echo "::error::当せん番号の保存（push）に5回失敗しました"; exit 1
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with: { path: src }
