@@ -4,32 +4,52 @@ import {
   judge, validTicket, nextDraw, frequency, absence, digitFrequency, digitAbsence, ranking, shapeStats, oracle, kaburi,
   winRank, isBigWin, prizeOf, suggestType,
 } from './lotto.js';
+import { chooseLine, homeSituation, linesUrl } from './lines.js';
 
 // ---------- キャラクター ----------
+// せりふは src/lines/<キャラID>.json から出す（選び方は lines.js、仕様は docs/lines-spec.md）。
+// ここの lines は、せりふファイルが読めない・足りないときの予備（cutin はご祈祷カットイン中の文字）。
 // せりふのルール：当たると期待させない／運で結果が変わると言わない／事実と違うことを言わない
 const CHARS = {
   miko: { name: 'かなえ', role: '見習い巫女', lines: {
     home: ['かなえにおまかせください！最新の結果をお知らせしますね', '神社をぴかぴかにお掃除しました！', 'くじは無理のない範囲で楽しみましょうね'],
-    pray: ['むむむ…神託がおりてきました！'],
+    pray: ['むむむ…神託がおりてきました！'], cutin: ['神楽鈴をシャンシャン…'],
     big: ['すごい！高額の当せんです！おめでとうございます！'], win: ['当せんしています！おめでとうございます！'],
     lose: ['今回ははずれでした。くじは楽しめる範囲で、ですね'] } },
   kannushi: { name: 'あたる', role: '見習い神主', lines: {
     home: ['結果の確認は、ここでまとめてできるよ', '数字選び、手伝おうか？', '買いすぎには気をつけてな'],
-    pray: ['祓いたまえ、清めたまえ…'],
+    pray: ['祓いたまえ、清めたまえ…'], cutin: ['祓いたまえ、清めたまえ…'],
     big: ['すごいな！高額の当せんだ！'], win: ['当せんしてる！よかったな！'],
     lose: ['今回ははずれだった。楽しめる範囲でいこう'] } },
   kitsune: { name: 'こん', role: '子ぎつねの神様見習い', lines: {
     home: ['こんこん、過去のデータを見るのが大好きこん', '数字の並び、見てるだけで楽しいこん'],
-    pray: ['こんこん…巻物を読み解いてるこん'],
+    pray: ['こんこん…巻物を読み解いてるこん'], cutin: ['こんこん…お祓いするこん'],
     big: ['こーん！高額の当せんだこん！'], win: ['当せんしてるこん！おめでとうこん！'],
     lose: ['こん…今回ははずれだこん'] } },
   neko: { name: 'ふく', role: '招き猫の巫女', lines: {
     home: ['いらっしゃいにゃ！最新の結果を見ていくにゃ', 'くじは楽しめる範囲で、にゃ'],
-    pray: ['にゃむにゃむ…お祈り中にゃ'],
+    pray: ['にゃむにゃむ…お祈り中にゃ'], cutin: ['しゃんしゃん…福よ来いにゃ'],
     big: ['高額の当せんにゃ！おめでとうにゃ！'], win: ['当せんしてるにゃ！おめでとうにゃ！'],
     lose: ['にゃ…今回ははずれにゃ'] } },
 };
 const imgPath = (c, e) => `assets/characters/${c}/${e}.png`;
+
+// せりふファイルは選んでいるキャラの分だけ読み込む（キャラを切り替えたらそのキャラの分を読む）。
+// 読めなかったときは null を入れて予備のせりふを使う（次に描き直すときにもう一度読みにいく）
+const charLines = {};
+async function loadLines(charId) {
+  if (charLines[charId]) return charLines[charId];
+  try {
+    const res = await fetch(linesUrl(charId), { cache: 'no-cache' });
+    if (!res.ok) throw new Error('lines');
+    const json = await res.json();
+    if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Error('lines');
+    return (charLines[charId] = json);
+  } catch { return null; }
+}
+// 状況キーのせりふ（今日の日付で選び、{game} は選んでいるくじの名前にする）
+const say = (key, charId = state.char, game = state.game) =>
+  chooseLine(key, new Date(), charLines[charId] || null, { game, fallback: CHARS[charId].lines });
 
 // ---------- 保存（端末の中だけ） ----------
 // 読み出した値は形を確かめ、想定外なら既定値を使う
@@ -131,7 +151,7 @@ function topPrizeHtml(game, x) {
 }
 
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2200); }
-const pickLine = lines => lines[Math.floor(Math.random() * lines.length)];
+const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 function charaHtml(expr) {
   const c = CHARS[state.char];
@@ -188,7 +208,7 @@ function renderHome() {
       <button class="btn" type="button" data-go="oracle">神託をいただく</button>
       <button class="btn sub" type="button" data-go="mine">マイ番号を確かめる</button>
     </section>`;
-  fillChara(pickLine(CHARS[state.char].lines.home));
+  fillChara(say(homeSituation(state.game, new Date(), last)));
   startCountdown(nx.time);
 }
 function startCountdown(target) {
@@ -256,7 +276,8 @@ function renderOracle() {
         <div class="seg" role="group" aria-label="集計範囲"><button type="button" data-trend="100" aria-pressed="${state.trend !== 'all'}">直近100回</button><button type="button" data-trend="all" aria-pressed="${state.trend === 'all'}">全${list.length}回</button></div></div>
       ${trendHtml(list)}
     </section>`;
-  fillChara(o.praying ? pickLine(CHARS[state.char].lines.pray) : (res ? '神託が出ました。気に入った番号は登録しておけますよ' : '流派をえらんで「神託をいただく」を押してくださいね'));
+  // 神託をいただく前（お祈り中も）は pray のせりふ
+  fillChara(res && !o.praying ? '神託が出ました。気に入った番号は登録しておけますよ' : say('pray'));
 }
 
 // 出現の傾向（くじの種類ごと）
@@ -313,7 +334,6 @@ function trendHtml(list) {
 // ---------- ご祈祷のカットイン ----------
 // 画面いっぱいにキャラが割り込み、持ち物（神楽鈴・大幣）を左右に振る2枚の絵を交互に出して、一生懸命ご祈祷している様子を見せる。
 // 絵がまだ無いキャラは「お祈り」の絵を揺らして代わりにする。画面をタップするとすぐ終わる。
-const PRAY_WORDS = { miko: '神楽鈴をシャンシャン…', kannushi: '祓いたまえ、清めたまえ…', kitsune: 'こんこん…お祓いするこん', neko: 'しゃんしゃん…福よ来いにゃ' };
 function playCutin(charId) {
   return new Promise(resolve => {
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -331,7 +351,7 @@ function playCutin(charId) {
         <img class="cutin-img f2" alt="" src="${imgPath(charId, 'oharai2')}">
         <span class="spark s1"></span><span class="spark s2"></span><span class="spark s3"></span><span class="spark s4"></span>
       </div>
-      <p class="cutin-text"><b>${c.name}</b><span>${PRAY_WORDS[charId] || 'ご祈祷中…'}</span></p>
+      <p class="cutin-text"><b>${c.name}</b><span>${escapeHtml(say('cutin', charId))}</span></p>
       <p class="cutin-skip">タップでとばす</p>`;
     // 振る絵が無ければお祈りの絵を揺らす。それも無ければ絵は出さない（壊れた画像の枠を見せない）
     let stage = 0;
@@ -453,9 +473,8 @@ function renderMine() {
     </div>`;
   }).join('');
 
-  const L = CHARS[state.char].lines;
   const expr = best ? 'joy' : decided ? 'sad' : 'normal';
-  const line = best ? (isBigWin(state.game, bestRes, bestAmount) ? L.big[0] : L.win[0]) : decided ? L.lose[0] : '買った番号を登録しておくと、結果が入ったときに自動で確かめますね';
+  const line = best ? say(isBigWin(state.game, bestRes, bestAmount) ? 'big' : 'win') : decided ? say('lose') : '買った番号を登録しておくと、結果が入ったときに自動で確かめますね';
 
   view.innerHTML = `
     ${charaHtml(expr)}
@@ -626,7 +645,8 @@ function confirmDialog(msg) {
 async function render() {
   document.querySelectorAll('.game-switch [data-game]').forEach(b => b.setAttribute('aria-selected', b.dataset.game === state.game));
   document.querySelectorAll('.tabs [data-tab]').forEach(b => b.dataset.tab === state.tab ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
-  try { await loadData(state.game); }
+  const linesReady = loadLines(state.char); // せりふはデータと並べて読み込む（読めなくても予備で続ける）
+  try { await loadData(state.game); await linesReady; }
   catch { view.innerHTML = `<section class="card"><h2>データを読み込めませんでした</h2><p class="muted">通信状態を確認して、もう一度開いてください。</p><button class="btn" type="button" id="retry">もう一度読み込む</button></section>`; return; }
   ({ home: renderHome, oracle: renderOracle, mine: renderMine, history: renderHistory })[state.tab]();
 }

@@ -7,6 +7,8 @@ import { updateKind } from './update-data.mjs';
 import { updateHubKind, checkSequence, checkDraw, MAX_NEW } from './hub.mjs';
 import { loadRecent } from './init-hub-data.mjs';
 import { createHash } from 'crypto';
+import os from 'os';
+import { chooseLine, homeSituation, timeBand, lineDay, checkLines, LINE_KEYS, CHAR_IDS } from '../src/lines.js';
 
 const load = k => JSON.parse(fs.readFileSync(new URL(`../src/data/${k}.json`, import.meta.url))).draws;
 const L6 = load('loto6'), L7 = load('loto7');
@@ -624,5 +626,148 @@ t('保存データ：既存のロト6・ロト7の登録番号はそのまま有
   assert.ok(validTicket('loto6', [1, 2, 3, 4, 5, 43], undefined)); assert.ok(validTicket('loto7', [1, 2, 3, 4, 5, 6, 37], undefined));
   assert.equal(GAMES.loto6.max, 43); assert.deepEqual(GAMES.loto7.drawDays, [5]);
 });
+
+// --- キャラのせりふ（src/lines.js、仕様 docs/lines-spec.md）。時刻はすべて日本時間で書く ---
+const J = s => new Date(s + '+09:00');
+const seq = (p, len = 31) => Array.from({ length: len }, (_, i) => `${p}${i + 1}`);
+const FB = { home: ['予備ホーム1', '予備ホーム2', '予備ホーム3'], pray: ['予備お祈り'], cutin: ['予備カットイン'], big: ['予備大当たり'], win: ['予備当せん'], lose: ['予備はずれ'] };
+const fullLines = () => Object.fromEntries(LINE_KEYS.map(k => [k, ['drawday', 'carryover'].includes(k)
+  ? Array.from({ length: 31 }, (_, i) => `今夜は{game}${i + 1}`) : k === 'cutin' ? seq('シャン') : seq(`${k}の${''}`)]));
+
+t('せりふ：日本時間の日付（UTCでは前日でも日本時間の日付）', () => {
+  assert.equal(lineDay(new Date('2026-11-30T15:00:00Z')), 1); // 日本時間 12/1 0:00
+  assert.equal(lineDay(new Date('2026-11-30T14:59:00Z')), 30);
+  assert.equal(lineDay(J('2026-12-31T23:59')), 31);
+});
+t('せりふ：日付の (日-1) 番目を選ぶ', () => {
+  const L = { morning: seq('朝') };
+  assert.equal(chooseLine('morning', J('2026-11-01T08:00'), L), '朝1');
+  assert.equal(chooseLine('morning', J('2026-11-27T08:00'), L), '朝27');
+  assert.equal(chooseLine('morning', J('2026-12-31T08:00'), L), '朝31');
+  assert.equal(chooseLine('morning', new Date('2026-11-30T15:30:00Z'), L), '朝1'); // UTCでは11/30、日本時間は12/1
+});
+t('せりふ：{game} をくじ名に置き換える（何回出てきても）', () => {
+  const L = { drawday: Array(31).fill('今夜は{game}の抽せん日。{game}を楽しもう'), carryover: Array(31).fill('{game}はキャリーオーバー') };
+  assert.equal(chooseLine('drawday', J('2026-11-27T10:00'), L, { game: 'numbers3' }), '今夜はナンバーズ3の抽せん日。ナンバーズ3を楽しもう');
+  assert.equal(chooseLine('carryover', J('2026-11-27T10:00'), L, { game: 'loto7' }), 'ロト7はキャリーオーバー');
+  assert.equal(chooseLine('drawday', J('2026-11-27T10:00'), L, { game: 'bingo5' }), '今夜はビンゴ5の抽せん日。ビンゴ5を楽しもう');
+});
+t('せりふ：ファイルが読めない（null）ときは予備を使う', () => {
+  assert.equal(chooseLine('morning', J('2026-11-01T08:00'), null, { fallback: FB }), '予備ホーム1');
+  assert.equal(chooseLine('drawday', J('2026-11-02T08:00'), null, { fallback: FB, game: 'loto6' }), '予備ホーム2');
+  assert.equal(chooseLine('loto6', J('2026-11-04T08:00'), null, { fallback: FB }), '予備ホーム1'); // 3個を日付でくり返す
+  assert.equal(chooseLine('pray', J('2026-11-27T08:00'), undefined, { fallback: FB }), '予備お祈り');
+  assert.equal(chooseLine('cutin', J('2026-11-27T08:00'), 'こわれた', { fallback: FB }), '予備カットイン');
+  for (const k of ['big', 'win', 'lose']) assert.equal(chooseLine(k, J('2026-11-27T08:00'), [], { fallback: FB }), FB[k][0]);
+});
+t('せりふ：31個未満・空・文字列でない・キーが無いときも予備を使う', () => {
+  const L = { morning: seq('朝', 30), noon: Array(31).fill(''), night: Array(31).fill(5), win: seq('当', 31) };
+  assert.equal(chooseLine('morning', J('2026-12-30T08:00'), L, { fallback: FB }), '朝30'); // ある分はそのまま
+  assert.equal(chooseLine('morning', J('2026-12-31T08:00'), L, { fallback: FB }), '予備ホーム1'); // 31番目が無い
+  assert.equal(chooseLine('noon', J('2026-11-27T12:00'), L, { fallback: FB }), '予備ホーム3');
+  assert.equal(chooseLine('night', J('2026-11-27T20:00'), L, { fallback: FB }), '予備ホーム3');
+  assert.equal(chooseLine('lose', J('2026-11-27T20:00'), L, { fallback: FB }), '予備はずれ');
+  assert.equal(chooseLine('win', J('2026-11-27T20:00'), L, { fallback: FB }), '当27');
+  assert.equal(chooseLine('morning', J('2026-11-27T08:00'), null), ''); // 予備も無くても落ちない
+  assert.equal(chooseLine('cutin', J('2026-11-27T08:00'), null), 'ご祈祷中…');
+});
+t('ホームの状況：年末年始（12/31〜1/3、日本時間）が一番先', () => {
+  const carry = { carryover: 500000000 };
+  assert.equal(homeSituation('loto6', J('2026-12-31T10:00'), carry), 'newyear'); // 木曜（ふだんはロト6の抽せん日）でも
+  assert.equal(homeSituation('numbers3', J('2027-01-01T10:00')), 'newyear');
+  assert.equal(homeSituation('loto7', J('2027-01-03T23:59'), carry), 'newyear');
+  assert.equal(homeSituation('loto6', new Date('2026-12-30T15:00:00Z')), 'newyear'); // UTCでは12/30、日本時間は12/31 0:00
+  assert.equal(homeSituation('loto6', J('2027-01-04T10:00')), 'drawday'); // 1/4(月) は抽せんあり
+  assert.equal(homeSituation('bingo5', J('2026-12-30T12:00')), 'drawday'); // 12/30(水) は抽せんあり
+});
+t('ホームの状況：抽せん日の当日 18:44 は drawday、18:46 は過ぎている', () => {
+  assert.equal(homeSituation('loto6', J('2026-11-26T18:44')), 'drawday'); // 11/26(木)
+  assert.equal(homeSituation('loto6', J('2026-11-26T18:46')), 'night'); // 偶数日なので時間帯
+  assert.equal(homeSituation('loto6', J('2026-11-26T18:45')), 'night'); // 抽せん時刻ちょうどはもう前ではない
+  assert.equal(homeSituation('loto6', J('2026-11-26T00:00')), 'drawday');
+  assert.equal(homeSituation('loto7', J('2026-11-27T18:44')), 'drawday'); // 金
+  assert.equal(homeSituation('loto7', J('2026-11-27T18:46')), 'loto7'); // 奇数日なのでくじ別
+  assert.equal(homeSituation('loto6', J('2026-11-27T10:00')), 'loto6'); // ロト6は金曜は抽せんなし
+  assert.equal(homeSituation('miniloto', J('2026-11-24T09:00')), 'drawday'); // 火
+  assert.equal(homeSituation('bingo5', J('2026-11-25T09:00')), 'drawday'); // 水
+  assert.equal(homeSituation('loto6', new Date('2026-11-26T09:44:00Z')), 'drawday'); // UTC 9:44 ＝ 日本時間 18:44
+  assert.equal(homeSituation('loto6', new Date('2026-11-25T16:00:00Z')), 'drawday'); // UTCでは水曜、日本時間は木曜 1:00
+});
+t('ホームの状況：ナンバーズは月〜金が抽せん日', () => {
+  for (const d of ['2026-11-23', '2026-11-24', '2026-11-25', '2026-11-26', '2026-11-27']) {
+    assert.equal(homeSituation('numbers3', J(`${d}T12:00`)), 'drawday'); assert.equal(homeSituation('numbers4', J(`${d}T18:44`)), 'drawday');
+  }
+  assert.equal(homeSituation('numbers4', J('2026-11-28T12:00')), 'noon'); // 土・偶数日
+  assert.equal(homeSituation('numbers3', J('2026-11-29T12:00')), 'numbers3'); // 日・奇数日
+});
+t('ホームの状況：キャリーオーバーは抽せん日の次、ロト6・ロト7で 0 より大きいときだけ', () => {
+  const c = { carryover: 123456789 };
+  assert.equal(homeSituation('loto6', J('2026-11-26T18:44'), c), 'drawday');
+  assert.equal(homeSituation('loto6', J('2026-11-26T18:46'), c), 'carryover');
+  assert.equal(homeSituation('loto7', J('2026-11-28T08:00'), c), 'carryover');
+  assert.equal(homeSituation('loto7', J('2026-11-28T08:00'), { carryover: 0 }), 'morning');
+  assert.equal(homeSituation('loto7', J('2026-11-28T08:00'), {}), 'morning');
+  assert.equal(homeSituation('loto7', J('2026-11-28T08:00'), null), 'morning');
+  assert.equal(homeSituation('miniloto', J('2026-11-28T08:00'), c), 'morning'); // キャリーオーバーはロト6・ロト7だけ
+  assert.equal(homeSituation('bingo5', J('2026-11-29T08:00'), c), 'bingo5');
+});
+t('ホームの状況：奇数日はくじ別、偶数日は時間帯（日本時間の日付）', () => {
+  for (const g of ['loto6', 'loto7', 'miniloto', 'bingo5', 'numbers3', 'numbers4']) {
+    assert.equal(homeSituation(g, J('2026-11-29T12:00')), g); // 日曜・29日
+    assert.equal(homeSituation(g, J('2026-11-28T12:00')), 'noon'); // 土曜・28日
+  }
+  assert.equal(homeSituation('loto6', J('2026-11-28T23:59')), 'night');
+  assert.equal(homeSituation('loto6', J('2026-11-29T00:00')), 'loto6');
+  assert.equal(homeSituation('loto6', new Date('2026-11-27T20:00:00Z')), 'morning'); // UTCでは27日（奇数）、日本時間は28日 5:00
+});
+t('ホームの状況：時間帯の境目（朝 5:00〜10:59／昼 11:00〜16:59／夜 17:00〜4:59）', () => {
+  const at = hm => homeSituation('loto6', J(`2026-11-28T${hm}`));
+  assert.equal(at('04:59'), 'night'); assert.equal(at('05:00'), 'morning');
+  assert.equal(at('10:59'), 'morning'); assert.equal(at('11:00'), 'noon');
+  assert.equal(at('16:59'), 'noon'); assert.equal(at('17:00'), 'night');
+  assert.equal(at('00:00'), 'night');
+  assert.equal(timeBand(new Date('2026-11-27T20:00:00Z')), 'morning'); // UTC 20:00 ＝ 日本時間 5:00
+  assert.equal(timeBand(new Date('2026-11-28T01:59:00Z')), 'morning'); // 日本時間 10:59
+  assert.equal(timeBand(new Date('2026-11-28T08:00:00Z')), 'night'); // 日本時間 17:00
+});
+t('せりふファイルの確かめ方：正しい形は合格、まちがいは見つける', () => {
+  assert.deepEqual(checkLines(fullLines()), []);
+  const bad = fullLines();
+  bad.morning = bad.morning.slice(0, 30); bad.noon[3] = ''; bad.night[0] = 'あ'.repeat(41); bad.cutin[0] = 'あ'.repeat(17);
+  bad.drawday[5] = '今夜は抽せん日'; bad.loto6[2] = '{game}の日'; bad.win[1] = '{name}さん'; delete bad.lose; bad.extra = [];
+  const e = checkLines(bad).join('\n');
+  for (const w of ['morning：30個', 'noon[3]：空', 'night[0]：41文字', 'cutin[0]：17文字', 'drawday[5]：{game} がない', 'loto6[2]：{game} は使わない', 'win[1]：{game} 以外', 'lose：配列がない', '仕様にないキー：extra'])
+    assert.ok(e.includes(w), w);
+  assert.equal(checkLines('x').length, 1); assert.equal(checkLines(null).length, 1);
+  const ok40 = fullLines(); ok40.night[0] = 'あ'.repeat(40); ok40.cutin[0] = 'あ'.repeat(16); ok40.drawday[0] = '{game}' + 'あ'.repeat(34);
+  assert.deepEqual(checkLines(ok40), []);
+});
+t('せりふ：仮のせりふファイル（一時フォルダ）を読んで選べる', () => {
+  const dir = fs.mkdtempSync(`${os.tmpdir()}/lotojinja-lines-`);
+  try {
+    const f = `${dir}/miko.json`;
+    fs.writeFileSync(f, JSON.stringify(fullLines()));
+    const L = JSON.parse(fs.readFileSync(f, 'utf8'));
+    assert.deepEqual(checkLines(L), []);
+    const now = J('2026-11-26T18:00');
+    assert.equal(chooseLine(homeSituation('numbers4', now), now, L, { game: 'numbers4', fallback: FB }), '今夜はナンバーズ426');
+    assert.equal(chooseLine('cutin', now, L, { fallback: FB }), 'シャン26');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+t('オフライン：sw.js がせりふの仕組みと4人分のせりふを保存する', () => {
+  const sw = fs.readFileSync(new URL('../src/sw.js', import.meta.url), 'utf8');
+  assert.ok(sw.includes("'lines.js'")); assert.ok(sw.includes('lines/${c}.json'));
+  assert.deepEqual(CHAR_IDS, ['miko', 'kannushi', 'kitsune', 'neko']);
+});
+// せりふ係のファイル（src/lines/）が4つそろったら、仕様どおりかを確かめる（そろうまでは飛ばす）
+{
+  const linePath = c => new URL(`../src/lines/${c}.json`, import.meta.url);
+  const have = CHAR_IDS.filter(c => fs.existsSync(linePath(c)));
+  if (have.length < CHAR_IDS.length) console.log(`skip せりふファイルの中身（src/lines/ にそろっていない：${have.length}/4）`);
+  else for (const c of CHAR_IDS) t(`せりふファイル ${c}.json：17キー×31個・空なし・40文字以内（cutin 16）・{game} は drawday/carryover だけ`, () => {
+    const errs = checkLines(JSON.parse(fs.readFileSync(linePath(c), 'utf8')));
+    assert.deepEqual(errs.slice(0, 20), [], `${c}.json に ${errs.length} 件の問題`);
+  });
+}
 
 console.log(`\n${n} 件すべて合格`);

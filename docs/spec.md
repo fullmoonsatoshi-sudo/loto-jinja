@@ -64,12 +64,14 @@ src/
 ├── index.html
 ├── style.css
 ├── lotto.js        ← 計算（照合・統計・神託・かぶり指数）。テストしやすいよう画面と分離
+├── lines.js        ← キャラのせりふの選び方（状況・日付で選ぶ。仕様は docs/lines-spec.md）
 ├── app.js          ← 画面
 ├── sw.js           ← オフライン用
 ├── manifest.webmanifest
 ├── data/loto6.json, loto7.json, miniloto.json, bingo5.json, numbers3.json, numbers4.json
 │   └── LICENSE-lotto-data-hub.txt  ← 公開データ lotto-data-hub のライセンス（MIT）
 ├── assets/characters/<キャラ>/<表情>.png
+├── lines/miko.json, kannushi.json, kitsune.json, neko.json  ← キャラのせりふ（17状況×31個）
 └── README.md       ← 起動方法
 tools/
 ├── update-data.mjs    ← 新しい回の追記（loto＝ロト6・7、hub＝新しい4種類）

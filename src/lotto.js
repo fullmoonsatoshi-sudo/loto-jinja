@@ -126,15 +126,26 @@ export function validTicket(kind, nums, type) {
 
 // ---------- 抽せん日 ----------
 // 日本時間の「年・月・日・曜日」を Date から取り出す
-function jstParts(date) {
+// h・min は日本時間の時・分（せりふの時間帯・抽せん前かどうかに使う）。m は 0〜11
+export function jstParts(date) {
   const d = new Date(date.getTime() + JST);
-  return { y: d.getUTCFullYear(), m: d.getUTCMonth(), d: d.getUTCDate(), w: d.getUTCDay() };
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth(), d: d.getUTCDate(), w: d.getUTCDay(), h: d.getUTCHours(), min: d.getUTCMinutes() };
 }
 function jstDrawTime(y, m, d) {
   return new Date(Date.UTC(y, m, d, DRAW_HOUR, DRAW_MIN) - JST);
 }
 // 年末年始（12/31〜1/3）は抽せんが無い
-function isHolidayBreak(m, d) { return (m === 11 && d === 31) || (m === 0 && d <= 3); }
+export function isHolidayBreak(m, d) { return (m === 11 && d === 31) || (m === 0 && d <= 3); }
+// 日本時間の今日が、そのくじの抽せん日か（年末年始は抽せんなし。nextDraw と同じ考え方）
+export function isDrawDay(kind, now = new Date()) {
+  const p = jstParts(now);
+  return GAMES[kind].drawDays.includes(p.w) && !isHolidayBreak(p.m, p.d);
+}
+// 日本時間の今日が抽せん日で、まだ抽せん時刻（18:45）前か
+export function isBeforeDrawToday(kind, now = new Date()) {
+  const p = jstParts(now);
+  return isDrawDay(kind, now) && p.h * 60 + p.min < DRAW_HOUR * 60 + DRAW_MIN;
+}
 
 // 最後に取り込んだ回の日付と今の時刻から、次の抽せんの回と時刻、取り込み待ちの回数を求める
 export function nextDraw(kind, lastDraw, now = new Date()) {
