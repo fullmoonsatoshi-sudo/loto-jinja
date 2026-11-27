@@ -1,1 +1,20 @@
-{"type":"module"}
+{
+  "name": "loto-jinja",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tools/test.mjs",
+    "build:web": "node tools/app/build-web.mjs",
+    "sync": "node tools/app/build-web.mjs && cap sync android"
+  },
+  "dependencies": {
+    "@capacitor-community/admob": "8.5.0",
+    "@capacitor/android": "8.6.3",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.6.3",
+    "@capacitor/splash-screen": "8.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.3"
+  }
+}

@@ -195,6 +195,7 @@ await (async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'carry-'));
   fs.mkdirSync(path.join(dir, 'tools'), { recursive: true }); fs.mkdirSync(path.join(dir, 'src/data'), { recursive: true });
   for (const f of ['set-carryover.mjs', 'csv.mjs']) fs.copyFileSync(new URL(`./${f}`, import.meta.url), path.join(dir, 'tools', f));
+  fs.copyFileSync(new URL('../src/csv.js', import.meta.url), path.join(dir, 'src/csv.js')); // tools/csv.mjs の中身
   const l6 = JSON.parse(fs.readFileSync(new URL('../src/data/loto6.json', import.meta.url)));
   delete l6.draws.find(d => d.n === 2158).carryover;
   fs.writeFileSync(path.join(dir, 'src/data/loto6.json'), JSON.stringify(l6));
@@ -576,6 +577,7 @@ if (!process.env.LOTOJINJA_NESTED) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'official-'));
   fs.mkdirSync(path.join(dir, 'tools'), { recursive: true }); fs.mkdirSync(path.join(dir, 'src/data'), { recursive: true });
   for (const f of ['set-official.mjs', 'csv.mjs']) fs.copyFileSync(new URL(`./${f}`, import.meta.url), path.join(dir, 'tools', f));
+  fs.copyFileSync(new URL('../src/csv.js', import.meta.url), path.join(dir, 'src/csv.js')); // tools/csv.mjs の中身
   const dataPath = k => path.join(dir, 'src/data', `${k}.json`);
   // 対象の回から当せん金（とキャリーオーバー）を消したコピーを用意する
   const reset = () => {
@@ -842,6 +844,294 @@ t('予備のせりふ（app.js の CHARS）：福が来る・神託が届く・�
   else for (const c of CHAR_IDS) t(`せりふファイル ${c}.json：17キー×31個・空なし・40文字以内（cutin 16）・{game} は drawday/carryover だけ`, () => {
     const errs = checkLines(JSON.parse(fs.readFileSync(linePath(c), 'utf8')));
     assert.deepEqual(errs.slice(0, 20), [], `${c}.json に ${errs.length} 件の問題`);
+  });
+}
+
+
+// =====================================================================
+// アプリ（Android 版）の中での取り込み：公式CSVを直接読む（src/sync.js・src/csv.js の一覧）
+// 通信・保存・時刻は差し替えてテストする
+// =====================================================================
+{
+  const csvMod = await import('../src/csv.js');
+  const S = await import('../src/sync.js');
+  const { parseListCsv, listCsvUrl } = csvMod;
+  const LISTS = ['loto6', 'loto7', 'miniloto', 'numbers', 'bingo5'];
+  const listText = g => ofx(`list-${g}.csv`);
+  t('一覧CSV：5種類の実物を読める（新しい順・回と日付）', () => {
+    assert.deepEqual(parseListCsv('loto6', listText('loto6')), [{ n: 2158, date: '2026-11-26' }, { n: 2157, date: '2026-11-23' }, { n: 2156, date: '2026-11-19' }]);
+    assert.deepEqual(parseListCsv('loto7', listText('loto7'))[0], { n: 704, date: '2026-11-20' });
+    assert.deepEqual(parseListCsv('miniloto', listText('miniloto'))[0], { n: 1414, date: '2026-11-24' });
+    assert.deepEqual(parseListCsv('numbers', listText('numbers'))[0], { n: 7123, date: '2026-11-26' });
+    assert.deepEqual(parseListCsv('bingo5', listText('bingo5'))[0], { n: 498, date: '2026-11-25' });
+  });
+  t('一覧CSV：違う種類・回の行なし・並びが逆・日付なしははじく', () => {
+    assert.throws(() => parseListCsv('miniloto', listText('loto6')));
+    assert.throws(() => parseListCsv('loto6', listText('miniloto'))); // 「ミニロト」は「ロト6」ではない
+    assert.throws(() => parseListCsv('loto6', 'A52\r\n'));
+    assert.throws(() => parseListCsv('loto6', '<html>メンテナンス中</html>'));
+    assert.throws(() => parseListCsv('loto6', listText('loto6').split(/\r\n/).reverse().join('\r\n')));
+    assert.throws(() => parseListCsv('loto6', '第2158回ロト６,数字選択式全国自治宝くじ,,東京'));
+  });
+  t('一覧CSV・回別CSVのURL（LIST-FORMATS.md どおり）', () => {
+    assert.equal(listCsvUrl('loto7'), 'https://www.mizuhobank.co.jp/retail/takarakuji/loto/loto7/csv/loto7.csv');
+    assert.equal(listCsvUrl('numbers'), 'https://www.mizuhobank.co.jp/retail/takarakuji/numbers/csv/numbers.csv');
+    assert.equal(listCsvUrl('bingo5'), 'https://www.mizuhobank.co.jp/retail/takarakuji/bingo/bingo5/csv/bingo5.csv');
+    assert.equal(officialCsvUrl('bingo5', 498), 'https://www.mizuhobank.co.jp/retail/takarakuji/bingo/bingo5/csv/A1040498.CSV');
+  });
+
+  // 偽の通信：公式は fixtures の実物（Shift_JIS を読んだ文字）、予備は手元のデータから作る
+  const OFFICIAL_FILES = { 'A1022157.CSV': () => fx('A1022157.CSV'), 'A1022158.CSV': () => fx('A1022158.CSV'), 'A1030704.CSV': () => fx('A1030704.CSV'),
+    'A1011414.CSV': () => ofx('A1011414.CSV'), 'A1040498.CSV': () => ofx('A1040498.CSV'), 'A1007123.CSV': () => ofx('A1007123.CSV') };
+  const all = Object.fromEntries(['loto6', 'loto7', 'miniloto', 'bingo5', 'numbers3', 'numbers4'].map(k => [k, load(k)]));
+  const memStore = () => { const m = new Map(); return { m, get: k => (m.has(k) ? JSON.parse(m.get(k)) : null), set: (k, v) => m.set(k, JSON.stringify(v)) }; };
+  // opts.official：false=全部403（クラウドからと同じ）／'broken'=一覧が読めない形 ／ opts.lists：一覧の差し替え ／ opts.backup：くじ → draws（false=読めない）
+  const makeDeps = (opts = {}) => {
+    const calls = [];
+    const get = async (url, type) => {
+      calls.push(url);
+      const name = url.split('/').pop();
+      if (url.includes('mizuhobank')) {
+        if (opts.official === false) return { status: 403, text: '' };
+        if (name.endsWith('.csv')) {
+          const g = name.replace('.csv', '');
+          if (opts.official === 'broken') return { status: 200, text: '<html>ただいまメンテナンス中です</html>', maxAge: 60 };
+          return { status: 200, text: opts.lists?.[g] ?? listText(g), maxAge: 60 };
+        }
+        const f = OFFICIAL_FILES[name];
+        return f ? { status: 200, text: f() } : { status: 403, text: '' };
+      }
+      const kind = name.replace('.json', '');
+      const b = opts.backup?.[kind];
+      if (b === false || !b) return { status: 404, text: '' };
+      return { status: 200, text: JSON.stringify({ kind, draws: b }) };
+    };
+    return { calls, get, storage: opts.storage || memStore(), now: () => opts.now || J('2026-11-27T12:00') };
+  };
+  // 手元の最新回までの写し。ロト6・ロト7の古い回にはキャリーオーバーが無いので、最新回には入れておく（公式で確かめ済みの形）
+  const upto = (k, n) => { const l = all[k].filter(d => d.n <= n).map(d => ({ ...d })); if (/^loto[67]$/.test(k) && l.at(-1).carryover == null) l.at(-1).carryover = 0; return l; };
+  const run = async (group, draws, opts) => { const deps = makeDeps(opts); const r = await S.syncGroup(group, { draws, bundled: opts?.bundled, force: opts?.force }, deps).catch(e => e); return { r, deps }; };
+  const noSrc = d => { const { src, ...x } = d; return x; };
+
+  let x = await run('loto6', { loto6: upto('loto6', 2156) });
+  t('公式から：ロト6 手元が第2156回なら、一覧で最新回を知り第2157・2158回だけ読む（当せん金・キャリーオーバーつき）', () => {
+    assert.ok(!(x.r instanceof Error), String(x.r));
+    assert.equal(x.r.source, 'official'); assert.equal(x.r.added, 2);
+    assert.deepEqual(x.deps.calls.map(u => u.split('/').pop()), ['loto6.csv', 'A1022157.CSV', 'A1022158.CSV']);
+  });
+  {
+    const draws = { loto6: upto('loto6', 2156) };
+    await S.syncGroup('loto6', { draws }, makeDeps());
+    t('公式から：取り込んだ回は取り込み済みデータと同じ中身（公式の印 src つき）', () => {
+      assert.deepEqual(draws.loto6.slice(-2).map(noSrc), all.loto6.filter(d => d.n >= 2157));
+      assert.ok(draws.loto6.slice(-2).every(d => d.src === 'official'));
+    });
+  }
+  {
+    const draws = { numbers3: upto('numbers3', 7122), numbers4: upto('numbers4', 7122) };
+    const r = await S.syncGroup('numbers', { draws }, makeDeps());
+    t('公式から：ナンバーズは1つのCSVから3と4の両方を取り込む（同じ回・同じ日付）', () => {
+      assert.equal(r.added, 1);
+      assert.deepEqual(noSrc(draws.numbers3.at(-1)), all.numbers3.find(d => d.n === 7123));
+      assert.deepEqual(noSrc(draws.numbers4.at(-1)), all.numbers4.find(d => d.n === 7123));
+    });
+  }
+  for (const [g, n] of [['miniloto', 1414], ['bingo5', 498]]) {
+    const draws = { [g]: upto(g, n - 1) };
+    const r = await S.syncGroup(g, { draws }, makeDeps());
+    t(`公式から：${g} 第${n}回を取り込む`, () => { assert.equal(r.added, 1); assert.deepEqual(noSrc(draws[g].at(-1)), all[g].find(d => d.n === n)); });
+  }
+  {
+    // 手元の最新回（キャリーオーバーなし）の確かめに失敗しても、新しい回は公式から取り込む
+    const draws = { loto6: all.loto6.filter(d => d.n <= 2156).map(d => ({ ...d })) };
+    const deps = makeDeps();
+    const r = await S.syncGroup('loto6', { draws }, deps);
+    t('公式から：手元の最新回の確かめ（回別CSV）が読めなくても、新しい回は公式から取り込む', () => {
+      assert.equal(r.source, 'official'); assert.equal(r.added, 2); assert.ok(deps.calls.some(u => u.endsWith('A1022156.CSV')));
+    });
+  }
+  x = await run('loto6', { loto6: upto('loto6', 2158) });
+  t('新しい回が無ければ、読むのは一覧の1ファイルだけ', () => { assert.equal(x.r.added, 0); assert.equal(x.deps.calls.length, 1); assert.equal(x.r.error, null); });
+
+  // 公式が読めないとき・形式が変わったとき → 予備（GitHub Pages）
+  for (const [label, official] of [['公式が403（読めない）', false], ['公式の一覧の形式が変わった', 'broken']]) {
+    const draws = { loto6: upto('loto6', 2156) };
+    const deps = makeDeps({ official, backup: { loto6: all.loto6 } });
+    const r = await S.syncGroup('loto6', { draws }, deps);
+    t(`予備へ切り替え：${label}なら GitHub Pages のデータから取り込む`, () => {
+      assert.equal(r.source, 'backup'); assert.equal(r.added, 2); assert.equal(r.error, null); assert.match(r.note, /予備/);
+      assert.ok(deps.calls.includes(S.backupUrl('loto6')));
+      assert.deepEqual(draws.loto6.slice(-2).map(noSrc), all.loto6.filter(d => d.n >= 2157));
+      assert.ok(draws.loto6.slice(-2).every(d => d.src === 'backup'));
+    });
+  }
+  {
+    const draws = { numbers3: upto('numbers3', 7120), numbers4: upto('numbers4', 7120) };
+    const r = await S.syncGroup('numbers', { draws }, makeDeps({ official: false, backup: { numbers3: all.numbers3, numbers4: all.numbers4.filter(d => d.n <= 7122) } }));
+    t('予備：ナンバーズは3と4がそろっている回までだけ取り込む', () => { assert.equal(r.added, 2); assert.equal(draws.numbers3.at(-1).n, 7122); assert.equal(draws.numbers4.at(-1).n, 7122); });
+  }
+  {
+    const draws = { loto6: upto('loto6', 2156) };
+    const storage = memStore();
+    const r = await S.syncGroup('loto6', { draws }, makeDeps({ official: false, backup: false, storage }));
+    t('公式も予備も読めなければ、手元のデータのままで「取得できませんでした」の印', () => {
+      assert.equal(r.added, 0); assert.ok(r.error); assert.equal(draws.loto6.at(-1).n, 2156);
+      assert.ok(S.lastError('loto6', storage));
+    });
+  }
+  {
+    const tampered = all.loto6.map(d => d.n === 2150 ? { ...d, main: [1, 2, 3, 4, 5, 6] } : d);
+    const draws = { loto6: upto('loto6', 2156) };
+    const r = await S.syncGroup('loto6', { draws }, makeDeps({ official: false, backup: { loto6: tampered } }));
+    t('予備が手元（公式）と食い違えば、予備は使わない（公式を優先）', () => { assert.equal(r.added, 0); assert.ok(r.error); assert.equal(draws.loto6.at(-1).n, 2156); });
+  }
+  {
+    // 予備から入った最新回（キャリーオーバーなし）を、公式が読めるようになったら公式で確かめて置きかえる
+    const draws = { loto6: upto('loto6', 2158) };
+    const { carryover, ...noCarry } = draws.loto6.at(-1);
+    draws.loto6[draws.loto6.length - 1] = { ...noCarry, src: 'backup' };
+    const deps = makeDeps();
+    const r = await S.syncGroup('loto6', { draws }, deps);
+    t('公式で確かめる：予備から入った最新回は公式の回別CSVで置きかえる（キャリーオーバーも入る）', () => {
+      assert.equal(r.changed, 1); assert.equal(draws.loto6.at(-1).src, 'official'); assert.equal(draws.loto6.at(-1).carryover, 0);
+      assert.ok(deps.calls.some(u => u.endsWith('A1022158.CSV')));
+    });
+    const differs = upto('loto6', 2158); differs[differs.length - 1] = { ...differs.at(-1), main: [1, 2, 3, 4, 5, 6], src: 'backup' };
+    const r2 = await S.syncGroup('loto6', { draws: { loto6: differs } }, makeDeps());
+    t('公式で確かめる：予備の内容が公式と違えば、公式の内容にする', () => { assert.equal(r2.changed, 1); assert.deepEqual(differs.at(-1).main, [5, 13, 15, 23, 27, 42]); });
+  }
+  {
+    // 一度に読む回は最大 MAX_FETCH。多く遅れていれば、残りは予備から
+    const lists = { loto6: listText('loto6').replace('第2158回', '第2160回') };
+    const draws = { loto6: upto('loto6', 2150) };
+    const deps = makeDeps({ lists, backup: { loto6: all.loto6 } });
+    await S.syncGroup('loto6', { draws }, deps);
+    const csvReads = deps.calls.filter(u => /A102\d+\.CSV$/.test(u)).length;
+    t(`一度に読む回別CSVは最大${S.MAX_FETCH}回分。それより遅れていれば残りは予備から`, () => {
+      assert.ok(csvReads <= S.MAX_FETCH, String(csvReads));
+      assert.ok(deps.calls.includes(S.backupUrl('loto6')));
+      assert.equal(draws.loto6.at(-1).n, 2158); // 予備にある最新回まで
+    });
+  }
+
+  // 検査
+  const p6 = all.loto6.find(d => d.n === 2157), d6 = all.loto6.find(d => d.n === 2158);
+  t('検査：回の連続・抽せん日どおりの日付（曜日）・抽せん前・数字の範囲', () => {
+    const now = J('2026-11-27T12:00');
+    assert.doesNotThrow(() => S.checkNext('loto6', p6, d6, now));
+    assert.throws(() => S.checkNext('loto6', p6, { ...d6, n: 2159 }, now), /連続/);
+    assert.throws(() => S.checkNext('loto6', p6, { ...d6, date: '2026-11-25' }, now), /予定/); // 水曜はロト6の抽せん日ではない
+    assert.throws(() => S.checkNext('loto6', p6, d6, J('2026-11-26T18:00')), /抽せん前/);
+    assert.throws(() => S.checkNext('loto6', p6, { ...d6, main: [5, 13, 15, 23, 27, 44] }, now), /範囲/);
+    assert.throws(() => S.checkNext('loto6', p6, { ...d6, bonus: [5] }, now), /重複/);
+    assert.throws(() => S.checkNext('bingo5', all.bingo5.at(-2), { ...all.bingo5.at(-1), main: [6, 9, 13, 17, 21, 29, 35, 40] }, now), /マス/);
+    assert.throws(() => S.checkNext('numbers3', all.numbers3.at(-2), { ...all.numbers3.at(-1), main: [4, 1, 12] }, now), /範囲/);
+    assert.throws(() => S.checkNext('loto6', p6, { ...d6, prizes: [1, 2] }, now), /当せん金/);
+    assert.throws(() => S.checkNumbersPair([{ n: 7123, date: '2026-11-26' }], [{ n: 7123, date: '2026-11-25' }]), /一致/);
+  });
+  t('検査：年末年始（12/31〜1/3）は抽せんが無いので、その日付の回ははじく', () => {
+    const prev = { ...p6, n: 3000, date: '2026-12-28' };
+    assert.throws(() => S.checkNext('loto6', prev, { ...d6, n: 3001, date: '2026-12-31' }, J('2027-01-10T12:00')), /予定/);
+    assert.doesNotThrow(() => S.checkNext('loto6', prev, { ...d6, n: 3001, date: '2027-01-04' }, J('2027-01-10T12:00')));
+  });
+
+  // 読み直しの間隔
+  {
+    const draws = { loto6: upto('loto6', 2158) };
+    const storage = memStore();
+    await S.syncGroup('loto6', { draws }, makeDeps({ storage, now: J('2026-11-27T12:00') }));
+    const again = async (now, extra = {}) => { const deps = makeDeps({ storage, now, ...extra }); const r = await S.syncGroup('loto6', { draws }, deps); return { r, n: deps.calls.length }; };
+    const a = await again(J('2026-11-27T12:00:30'));
+    const b = await again(J('2026-11-27T15:00'));
+    const c = await again(J('2026-11-30T18:50')); // 次の抽せん（11/30 月 18:45）を過ぎた
+    const d = await again(J('2026-11-30T18:55')); // 結果待ちだが前回から10分たっていない
+    const e = await again(J('2026-11-30T19:01')); // 10分たった
+    t('読み直しの間隔：1分以内は読まない・結果待ちでなければ次の抽せんまで読まない', () => {
+      assert.equal(a.r.skipped, 'recent'); assert.equal(a.n, 0);
+      assert.equal(b.r.skipped, 'recent'); assert.equal(b.n, 0);
+    });
+    t('読み直しの間隔：抽せん時刻を過ぎたら読む。結果待ちの間は10分おき', () => {
+      assert.equal(c.n, 1); assert.equal(d.r.skipped, 'recent'); assert.equal(d.n, 0); assert.equal(e.n, 1);
+    });
+    const deps = makeDeps({ storage, now: J('2026-11-30T19:30') });
+    const [p1, p2] = [S.syncGroup('loto6', { draws, force: true }, deps), S.syncGroup('loto6', { draws, force: true }, deps)];
+    t('同じ一覧を同時に読まない（読み込み中なら同じ結果を待つ）', () => assert.equal(p1, p2));
+    await p1;
+    t('一覧の Cache-Control（max-age）が60秒より長ければ、それより短い間隔では読まない', () => {
+      const d58 = { loto6: upto('loto6', 2158) }, checked = J('2026-11-30T19:00').getTime(); // 第2159回の結果待ち
+      assert.equal(S.isDue('loto6', d58, { checked, maxAge: 900 }, J('2026-11-30T19:12')), false);
+      assert.equal(S.isDue('loto6', d58, { checked, maxAge: 60 }, J('2026-11-30T19:12')), true);
+    });
+  }
+
+  // 保存と読み込み
+  {
+    const bundled = upto('loto6', 2156);
+    const storage = memStore();
+    const draws = { loto6: S.loadStored('loto6', bundled, storage) };
+    await S.syncGroup('loto6', { draws, bundled: { loto6: bundled } }, makeDeps({ storage }));
+    const saved = storage.get('sync.draws.loto6');
+    t('保存：同梱データより新しい回だけを保存する（容量を使わない）', () => { assert.deepEqual(saved.draws.map(d => d.n), [2157, 2158]); });
+    t('読み込み：同梱データ＋保存した回で、取り込み後と同じになる', () => { assert.deepEqual(S.loadStored('loto6', bundled, storage), draws.loto6); });
+    const newer = upto('loto6', 2158);
+    t('読み込み：アプリを更新して同梱データに入った回は二重にならず、保存分から消える', () => {
+      const merged = S.loadStored('loto6', newer, storage);
+      assert.equal(merged.length, newer.length); assert.deepEqual(merged.map(noSrc), newer);
+      assert.deepEqual(S.storedPart(newer, merged), []);
+    });
+    t('読み込み：壊れた保存データは使わない', () => {
+      storage.set('sync.draws.loto6', { v: 1, draws: [{ n: 2157, date: '2026-11-23', main: [1, 1, 1], bonus: [] }] });
+      assert.equal(S.loadStored('loto6', bundled, storage).length, bundled.length);
+      storage.set('sync.draws.loto6', 'こわれた'); assert.equal(S.loadStored('loto6', bundled, storage).length, bundled.length);
+      const bad = { get() { throw new Error('x'); }, set() {} }; assert.equal(S.loadStored('loto6', bundled, bad).length, bundled.length);
+    });
+    t('読み込み：同梱データと違う回は、公式から入った回なら置きかえ、予備から入った回なら使わない', () => {
+      const b = upto('loto6', 2158), off = { ...b.at(-1), main: [1, 2, 3, 4, 5, 6], src: 'official' };
+      assert.deepEqual(S.mergeDraws(b, [off]).at(-1).main, [1, 2, 3, 4, 5, 6]);
+      assert.deepEqual(S.mergeDraws(b, [{ ...off, src: 'backup' }]).at(-1).main, b.at(-1).main);
+      const { carryover, ...nc } = b.at(-1);
+      assert.equal(S.mergeDraws([...b.slice(0, -1), nc], [{ ...b.at(-1), src: 'official' }]).at(-1).carryover, 0); // 足りない分は補う
+    });
+    t('保存：ナンバーズ約7000回でも、保存するのは差分だけ', () => {
+      const n3 = all.numbers3, merged = [...n3.map(d => ({ ...d })), { ...n3.at(-1), n: n3.at(-1).n + 1, date: '2026-11-27', src: 'official' }];
+      assert.equal(S.storedPart(n3, merged).length, 1);
+    });
+  }
+}
+
+
+// --- Android アプリ（ネイティブ版）の設定 ---
+{
+  const read = f => fs.readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
+  const { ADS, IS_TEST_ADS } = await import('../src/ads-config.js');
+  t('広告の設定（src/ads-config.js）：4つのIDの形', () => {
+    assert.match(ADS.appId, /^ca-app-pub-\d{16}~\d{10}$/); assert.match(ADS.banner, /^ca-app-pub-\d{16}\/\d{10}$/);
+    assert.match(ADS.rewarded, /^ca-app-pub-\d{16}\/\d{10}$/); assert.match(ADS.publisherId, /^pub-\d{16}$/);
+    assert.equal(ADS.appId.split('~')[0], ADS.banner.split('/')[0]); assert.equal(ADS.appId.split('~')[0], ADS.rewarded.split('/')[0]);
+    assert.equal(ADS.publisherId, ADS.appId.slice('ca-app-'.length).split('~')[0]);
+    assert.equal(typeof IS_TEST_ADS, 'boolean');
+  });
+  if (fs.existsSync(new URL('../android/app/build.gradle', import.meta.url))) {
+    const gradle = read('android/app/build.gradle'), manifest = read('android/app/src/main/AndroidManifest.xml'), vars = read('android/variables.gradle');
+    t('Android：広告のアプリIDは src/ads-config.js から読み、AndroidManifest に入る', () => {
+      const re = /appId:\s*'(ca-app-pub-\d+~\d+)'/; // android/app/build.gradle と同じ読み方
+      assert.equal(read('src/ads-config.js').match(re)[1], ADS.appId);
+      assert.ok(gradle.includes("file('../../src/ads-config.js')") && gradle.includes('manifestPlaceholders = [admobAppId: admobAppId]'));
+      assert.ok(manifest.includes('com.google.android.gms.ads.APPLICATION_ID') && manifest.includes('${admobAppId}'));
+    });
+    t('Android：versionCode 2 以上・versionName・minSdk 24・targetSdk/compileSdk 36・縦固定・パッケージ名', () => {
+      assert.ok(Number(gradle.match(/versionCode\s+(\d+)/)[1]) >= 2); assert.match(gradle, /versionName\s+"\d+\.\d+\.\d+"/);
+      assert.match(vars, /minSdkVersion = 24/); assert.match(vars, /compileSdkVersion = 36/); assert.match(vars, /targetSdkVersion = 36/);
+      assert.ok(manifest.includes('android:screenOrientation="portrait"'));
+      assert.ok(gradle.includes('applicationId "io.github.fullmoonsatoshisudo.lotojinja"'));
+      assert.match(read('android/app/src/main/res/values/strings.xml'), /title_activity_main">ロト神社</);
+    });
+  }
+  t('Web 版：アプリ用の部品（capacitor.js・native.js・sync.js）を読み込まない', () => {
+    assert.ok(!read('src/index.html').includes('capacitor.js'));
+    const app = read('src/app.js');
+    assert.ok(!/^import .*(native|sync)\.js/m.test(app), '静的 import していない');
+    assert.match(app, /IS_APP \? import\('\.\/native\.js'\) : null/); assert.match(app, /IS_APP \? import\('\.\/sync\.js'\) : null/);
   });
 }
 

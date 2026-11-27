@@ -6,6 +6,12 @@ import {
 } from './lotto.js';
 import { chooseLine, homeSituation, nextLineChange, linesUrl } from './lines.js';
 
+// ---------- Android アプリの中か（Capacitor） ----------
+// アプリの中では、公式CSVの直接取り込み（sync.js）・広告・戻るボタン（native.js）を使う。Web 版（ブラウザ）では読み込まない
+const IS_APP = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+const syncMod = IS_APP ? import('./sync.js') : null;
+const nativeMod = IS_APP ? import('./native.js') : null;
+
 // ---------- キャラクター ----------
 // せりふは src/lines/<キャラID>.json から出す（選び方は lines.js、仕様は docs/lines-spec.md）。
 // ここの lines は、せりふファイルが読めない・足りないときの予備（cutin はご祈祷カットイン中の文字）。
@@ -78,7 +84,8 @@ const state = {
   tab: 'home',
   char: store.get('char', 'miko', isChar),
   data: {},
-  oracle: { school: 'hot', count: 3, result: null, praying: false, run: 0 },
+  bundled: {},         // アプリ：同梱データ（取り込んだ回を重ねる前）
+  oracle: { school: 'hot', count: 3, result: null, praying: false, run: 0, adBusy: false, adNote: '' }, // adBusy・adNote：アプリのリワード広告
   trend: 100,
   histShown: 50,
   histQuery: '',
@@ -168,14 +175,69 @@ function wireFallback(root = document) {
 }
 
 // ---------- データ ----------
-async function loadData(game) {
-  if (state.data[game]) return state.data[game];
-  const res = await fetch(`data/${game}.json`, { cache: 'no-cache' });
-  if (!res.ok) throw new Error('data');
-  const json = await res.json();
-  state.data[game] = json;
-  return json;
+// アプリでは、同梱データに端末に保存した回（公式・予備から取り込んだ回）を重ねる
+const appStore = { get: k => store.get(k, null), set: (k, v) => store.set(k, v) };
+const loadingData = {};
+function loadData(game) {
+  if (state.data[game]) return Promise.resolve(state.data[game]);
+  return (loadingData[game] ||= (async () => {
+    const res = await fetch(`data/${game}.json`, { cache: 'no-cache' });
+    if (!res.ok) throw new Error('data');
+    const json = await res.json();
+    if (IS_APP) {
+      const S = await syncMod;
+      state.bundled[game] = json.draws;
+      json.draws = S.loadStored(game, json.draws, appStore);
+    }
+    state.data[game] = json;
+    return json;
+  })().finally(() => { delete loadingData[game]; }));
 }
+
+// ---------- アプリ：新しい回の取り込み（起動時・ホームを開いたとき・アプリに戻ったとき・抽せん時刻を過ぎたとき） ----------
+// 選んでいるくじと、マイ番号に登録があるくじについて、公式（みずほ銀行）のCSVを直接読む（読めなければ予備）。
+// 読みにいく間隔は sync.js が守る（同じファイルを短時間に何度も読まない）
+const syncFailed = {}; // 一覧の単位 → 公式・予備のどちらからも読めなかった
+let syncRunning = null;
+function syncNow() {
+  if (!IS_APP) return Promise.resolve();
+  if (syncRunning) return syncRunning;
+  return (syncRunning = (async () => {
+    const [S, N] = await Promise.all([syncMod, nativeMod]);
+    const games = new Set([state.game, ...loadTickets().map(t => t.game)]);
+    const groups = [...new Set([...games].map(S.groupOf))];
+    const changed = new Set();
+    let failChanged = false;
+    for (const group of groups) {
+      const kinds = S.GROUPS[group];
+      try { await Promise.all(kinds.map(k => loadData(k))); } catch { continue; }
+      const r = await S.syncGroup(group, {
+        draws: Object.fromEntries(kinds.map(k => [k, state.data[k].draws])),
+        bundled: Object.fromEntries(kinds.map(k => [k, state.bundled[k]])),
+      }, { get: N.nativeGet, storage: appStore, now: () => new Date() }).catch(e => ({ error: e.message, added: 0, changed: 0 }));
+      const failed = !!r.error;
+      if (failed !== !!syncFailed[group]) failChanged = true;
+      syncFailed[group] = failed;
+      if (r.error) console.warn(`取り込み（${group}）：${r.error}`); else if (r.note) console.info(`取り込み（${group}）：${r.note}`);
+      if (r.added || r.changed) kinds.forEach(k => changed.add(k));
+      if (r.added && kinds.includes(state.game)) toast(`${GAMES[state.game].name} 第${draws().at(-1).n}回の結果を取り込みました`);
+    }
+    armSyncTimer();
+    // 見ている画面に関係があれば描き直す（神託・お祈りの途中や、入力中は描き直さない）
+    const busy = state.oracle.praying || document.querySelector('.cutin') || document.activeElement?.id === 'histQ';
+    if ((changed.has(state.game) || failChanged) && !busy && state.tab !== 'oracle') render();
+  })().finally(() => { syncRunning = null; }));
+}
+// 次の抽せん時刻を過ぎたら（少し待って）取り込みにいく
+function armSyncTimer() {
+  clearTimeout(armSyncTimer.t);
+  const games = new Set([state.game, ...loadTickets().map(t => t.game)].filter(g => state.data[g]));
+  const times = [...games].map(g => upcoming(g)?.time?.getTime()).filter(Number.isFinite);
+  if (!times.length) return;
+  const wait = Math.min(...times) - Date.now() + 60 * 1000;
+  armSyncTimer.t = setTimeout(() => syncNow(), Math.min(Math.max(wait, 60 * 1000), 24 * 3600 * 1000));
+}
+const syncFailedFor = game => IS_APP && !!syncFailed[game.startsWith('numbers') ? 'numbers' : game];
 
 // ---------- 画面：ホーム ----------
 function renderHome() {
@@ -186,9 +248,16 @@ function renderHome() {
     `<p class="carry">キャリーオーバー <b>${last.carryover ? yen(last.carryover) : 'なし'}</b></p>`;
   const range = `第${last.n + 1}回${nx.pending > 1 ? `〜第${last.n + nx.pending}回` : ''}`;
   // 公開データから取り込むくじは、結果が抽せんの翌朝〜午前中に反映される。1回分の待ちはふつうのことなので、強い表示にしない
-  const pendingHtml = !nx.pending ? '' : g.hub && nx.pending === 1
+  // アプリでは公式のCSVを直接読むので、どのくじも公式の発表後に開けば反映される（読めなかったときだけ控えめに知らせる）
+  const failNote = nx.pending && syncFailedFor(state.game) ? '<span class="fail-note">最新の結果を取得できませんでした。通信状態を確かめて、あとでもう一度開いてください。</span>' : '';
+  const pendingHtml = !nx.pending ? '' : IS_APP
+    ? nx.pending === 1
+      ? `<p class="notice" role="status">${range}は抽せん済みです。結果は公式の発表後に、アプリを開くと反映されます。それまでは公式発表（宝くじ公式サイト）でご確認ください。${failNote}</p>`
+      : `<p class="notice strong" role="status">${range}は抽せん済みですが、まだ結果を取り込めていません。最新の結果は公式発表（宝くじ公式サイト）でご確認ください。${failNote}</p>`
+    : g.hub && nx.pending === 1
     ? `<p class="notice" role="status">${range}は抽せん済みです。${g.name}の結果は、抽せんの翌朝〜午前中に反映されます。それまでは公式発表（宝くじ公式サイト）でご確認ください。</p>`
     : `<p class="notice strong" role="status">${range}は抽せん済みですが、まだ結果を取り込めていません。最新の結果は公式発表（宝くじ公式サイト）でご確認ください。${g.hub ? `（${g.name}の結果は、ふだんは抽せんの翌朝〜午前中に反映されます）` : ''}</p>`;
+  const cdNote = IS_APP ? '結果は公式の発表後、アプリを開くと反映されます' : g.hub ? '結果は抽せんの翌朝〜午前中に反映されます' : '';
   view.innerHTML = `
     ${pendingHtml}
     ${charaHtml('normal')}
@@ -199,10 +268,10 @@ function renderHome() {
       ${prizeTableHtml(state.game, last)}
       <p class="note">当せん番号は必ず公式発表（宝くじ公式サイト・みずほ銀行）でもご確認ください。</p>
     </section>
-    <section class="card countdown${g.hub ? ' has-note' : ''}">
+    <section class="card countdown${cdNote ? ' has-note' : ''}">
       <div><div class="muted">次回 第${nx.n}回</div><div>${fmtJst(nx.time)}</div></div>
       <div class="big" id="cd"></div>
-      ${g.hub ? '<div class="cd-note">結果は抽せんの翌朝〜午前中に反映されます</div>' : ''}
+      ${cdNote ? `<div class="cd-note">${cdNote}</div>` : ''}
     </section>
     <section class="stack">
       <button class="btn" type="button" data-go="oracle">神託をいただく</button>
@@ -211,6 +280,7 @@ function renderHome() {
   fillChara(say(homeSituation(state.game, new Date(), last)));
   startCountdown(nx.time);
   armLineTimer(nx.time);
+  syncNow(); // アプリ：ホームを開いたら新しい回を確かめる（間隔は sync.js が守る）
 }
 // 開いたままでも、時間帯・日付の境目でホームのせりふを変える（ふきだしの文字だけ書きかえる）。
 // 抽せん時刻ちょうどの境目は、カウントダウンが画面ごと描き直すので、ここでは待たない（二重にしない）
@@ -279,7 +349,8 @@ function renderOracle() {
         <span>口数</span>
         <div class="stepper"><button type="button" data-step="-1" aria-label="口数を減らす">−</button><output id="cnt">${o.count}口</output><button type="button" data-step="1" aria-label="口数を増やす">＋</button></div>
       </div>
-      <button class="btn mt16" type="button" id="doOracle" ${o.praying ? 'disabled' : ''}>${o.praying ? 'お祈り中…' : '神託をいただく'}</button>
+      ${o.adNote ? `<p class="notice mt16" role="status">${o.adNote}</p>` : ''}
+      <button class="btn mt16" type="button" id="doOracle" ${o.praying || o.adBusy ? 'disabled' : ''}>${o.praying ? 'お祈り中…' : o.adBusy ? '広告を読み込んでいます…' : '神託をいただく'}</button>
       <p class="disclaimer">神託は過去のデータを使ったお楽しみ機能です。抽せんは毎回まったくの偶然で決まるため、当せん確率は上がりません。<br><a class="tap-link" href="privacy.html">プライバシーポリシー</a></p>
     </section>
     ${tickets ? `<section class="card" id="oracleResult"><h2>${g.name}の神託</h2>${tickets}
@@ -389,6 +460,7 @@ function playCutin(charId) {
     let done = false;
     const finish = () => {
       if (done) return; done = true;
+      playCutin.finish = null;
       clearInterval(swing); clearTimeout(timer);
       document.removeEventListener('keydown', onKey);
       behind.forEach(b => { b.inert = false; });
@@ -399,6 +471,7 @@ function playCutin(charId) {
     const skip = () => { if (performance.now() - startedAt > 700) finish(); };
     const onKey = e => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); skip(); } };
     const timer = setTimeout(finish, reduce ? 900 : 2600);
+    playCutin.finish = finish; // Android の戻るボタンで閉じる
     el.addEventListener('click', skip);
     document.addEventListener('keydown', onKey);
     requestAnimationFrame(() => el.classList.add('in'));
@@ -417,6 +490,26 @@ async function doOracle() {
   if (state.game !== game) { toast('くじの種類を切り替えたので、神託は取り消しました'); o.result = null; }
   await render();
   if (o.result && state.tab === 'oracle') $('#oracleResult')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// アプリ：神託の前にリワード広告。最後まで見たら神託、途中で閉じたら神託は出さない。
+// 広告を用意できないとき（通信なし・在庫なし）は、広告なしで神託を出す（使えなくなる状態を作らない）
+async function oracleWithAd() {
+  const o = state.oracle;
+  if (o.praying || o.adBusy) return;
+  o.adNote = '';
+  if (!(await confirmDialog('広告を見ると神託をいただけます。', '広告を見る', 'やめる'))) { render(); return; }
+  o.adBusy = true; render();
+  const N = await nativeMod;
+  let r = 'unavailable';
+  try { r = await N.showRewarded(); } catch (e) { console.warn('リワード広告：', e && e.message); }
+  o.adBusy = false;
+  updateBanner();
+  console.info(`リワード広告：${r}`); // rewarded（最後まで見た）／cancelled（途中で閉じた）／unavailable（用意できない）
+  if (r === 'rewarded') return doOracle();
+  if (r === 'unavailable') { toast('広告を用意できなかったので、そのまま神託をお出しします'); return doOracle(); }
+  o.adNote = '広告が最後まで再生されなかったため、神託はお出ししませんでした。もう一度「神託をいただく」を押すと、広告から始まります。';
+  render();
 }
 
 // ---------- 画面：マイ番号 ----------
@@ -617,8 +710,10 @@ function openSettings() {
       <li>18歳以上の方向けのアプリです。くじの購入はできません。</li>
       <li>神託（予想）はお楽しみ機能です。当せん確率は上がりません。</li>
       <li>くじは無理のない範囲で楽しみましょう。</li>
-      <li>当せん番号の出典：ロト6・ロト7はみずほ銀行の公式発表（公開データ jjayck/lotoanaba-data を経由し、公式と照合して取り込み）。ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4は公開データ lotto-data-hub（MITライセンス。元データは loto-life.net）を元に取り込み、結果は抽せんの翌朝〜午前中に反映されます。正式な結果は公式発表でご確認ください。取り込み済み：<span id="dataStatus">${dataStatus()}</span>まで</li>
-      <li>登録した番号や誕生日はこの端末の中だけに保存されます。</li>
+      ${IS_APP ? `<li>当せん番号の出典：みずほ銀行の公式発表。アプリが公式サイトの当せん番号のCSVを直接読み込みます（読めないときは、このアプリの配信元（GitHub Pages）のデータを使います）。アプリに入っている過去の回のうち、ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4は公開データ lotto-data-hub（MITライセンス。元データは loto-life.net）を元にしています。正式な結果は公式発表でご確認ください。取り込み済み：<span id="dataStatus">${dataStatus()}</span>まで</li>
+      <li>登録した番号や誕生日、取り込んだ当せん番号はこの端末の中だけに保存されます。</li>
+      <li>このアプリには広告が表示されます。神託は広告を見るといただけます（広告を用意できないときは、広告なしでいただけます）。</li>` : `<li>当せん番号の出典：ロト6・ロト7はみずほ銀行の公式発表（公開データ jjayck/lotoanaba-data を経由し、公式と照合して取り込み）。ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4は公開データ lotto-data-hub（MITライセンス。元データは loto-life.net）を元に取り込み、結果は抽せんの翌朝〜午前中に反映されます。正式な結果は公式発表でご確認ください。取り込み済み：<span id="dataStatus">${dataStatus()}</span>まで</li>
+      <li>登録した番号や誕生日はこの端末の中だけに保存されます。</li>`}
       <li><a class="tap-link" href="privacy.html">プライバシーポリシー</a></li>
     </ul>
     <button type="button" class="btn" data-close>閉じる</button>
@@ -644,10 +739,10 @@ function showGate() {
   dlg.addEventListener('cancel', e => e.preventDefault());
   dlg.showModal();
 }
-function confirmDialog(msg) {
+function confirmDialog(msg, yes = '削除する', no = 'やめる') {
   return new Promise(resolve => {
     const dlg = $('#confirm');
-    dlg.innerHTML = `<div class="dlg"><p class="m0">${msg}</p><div class="row nowrap mt16"><button type="button" class="btn ghost" data-ans="no">やめる</button><button type="button" class="btn" data-ans="yes">削除する</button></div></div>`;
+    dlg.innerHTML = `<div class="dlg"><p class="m0">${msg}</p><div class="row nowrap mt16"><button type="button" class="btn ghost" data-ans="no">${no}</button><button type="button" class="btn" data-ans="yes">${yes}</button></div></div>`;
     dlg.onclick = e => { const b = e.target.closest('[data-ans]'); if (!b) return; dlg.close(); resolve(b.dataset.ans === 'yes'); };
     dlg.oncancel = () => resolve(false);
     dlg.showModal();
@@ -721,8 +816,8 @@ const actions = {
 const byId = {
   retry: () => render(),
   openSettings: () => openSettings(),
-  agree: () => { store.set('agreed', true); $('#gate').close(); },
-  doOracle: () => doOracle(),
+  agree: () => { store.set('agreed', true); $('#gate').close(); updateBanner(); },
+  doOracle: () => (IS_APP ? oracleWithAd() : doOracle()),
   clearPick: () => { state.pick = emptyPick(state.game); state.pickPos = 0; render(); },
   savePick: () => {
     const isLoto = gtype() === 'loto';
@@ -751,8 +846,48 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('compositionend', e => { if (e.target.id === 'histQ') e.target.dispatchEvent(new Event('input', { bubbles: true })); });
 
+// ---------- アプリ：広告のバナー・戻るボタン ----------
+// バナーは、18歳以上の確認のあと、ダイアログ・カットイン・リワード広告が出ていないときだけ出す（画面下のタブの真上。native.js）
+function updateBanner() {
+  if (!IS_APP) return;
+  const want = store.get('agreed', false, v => v === true) && !document.querySelector('dialog[open]') && !document.querySelector('.cutin') && !state.oracle.adBusy;
+  nativeMod.then(N => N.setBannerWanted(want));
+}
+function onBack() {
+  if (playCutin.finish) return playCutin.finish();             // カットインを閉じる
+  if (state.oracle.adBusy) return;                              // 広告の読み込み中は何もしない
+  const dlg = document.querySelector('dialog[open]');
+  if (dlg) {
+    if (dlg.id === 'gate') return nativeMod.then(N => N.exitApp()); // 18歳以上の確認の前に戻る → アプリを閉じる
+    dlg.dispatchEvent(new Event('cancel'));                     // 確認ダイアログは「やめる」と同じ
+    if (dlg.open) dlg.close();
+    return;
+  }
+  if (state.tab !== 'home') { state.tab = 'home'; window.scrollTo(0, 0); render(); return; } // 画面を戻る（ホームへ）
+  nativeMod.then(N => N.exitApp());                             // ホームなら閉じる
+}
+if (IS_APP) {
+  document.documentElement.classList.add('in-app');
+  nativeMod.then(N => {
+    N.onBackButton(onBack);
+    N.onResume(() => syncNow());
+    N.initAds().then(updateBanner);
+  }).catch(e => console.warn('アプリの部品を読み込めませんでした：', e && e.message));
+  // ダイアログの開け閉め・カットインの出入りでバナーを出し入れする
+  new MutationObserver(updateBanner).observe(document.body, { attributes: true, attributeFilter: ['open'], subtree: true });
+  new MutationObserver(updateBanner).observe(document.body, { childList: true });
+  // プライバシーポリシーを開く前にバナーを隠す（別のページの上に広告を残さない）
+  document.addEventListener('click', e => {
+    const a = e.target.closest('a[href="privacy.html"]');
+    if (!a) return;
+    e.preventDefault();
+    nativeMod.then(N => N.setBannerWanted(false)).finally(() => setTimeout(() => { location.href = 'privacy.html'; }, 150));
+  }, true);
+}
+
 // ---------- 起動 ----------
 // 最初は選んでいるくじのデータだけを読み込む（ほかの種類は切り替えたときに読み込む）
 render();
 showGate();
-if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+// Web 版だけ：オフラインでも開けるようにする（アプリは中にファイルを持っているので不要）
+if (!IS_APP && 'serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});

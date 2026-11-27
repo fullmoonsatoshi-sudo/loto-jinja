@@ -1,0 +1,25 @@
+{
+  "appId": "io.github.fullmoonsatoshisudo.lotojinja",
+  "appName": "当たれ！ロト神社",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#FBF6EE",
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 800,
+      "launchAutoHide": true,
+      "backgroundColor": "#FBF6EE",
+      "showSpinner": false
+    },
+    "SystemBars": {
+      "style": "DARK",
+      "insetsHandling": "css",
+      "initialViewportFitValueHint": "cover"
+    },
+    "CapacitorHttp": {
+      "enabled": false
+    }
+  }
+}

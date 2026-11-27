@@ -1,36 +1,102 @@
-# Google Play 用の Android アプリ（.aab）を作る。手動で実行する。
-# 署名はしない（署名の鍵は GitHub に置かず、オーナーの HDD に保管している）。できた .aab はあとで鍵で署名してから Play に上げる。
+# Android アプリ（Capacitor のネイティブ版）を作り、エミュレーターで動きを確かめる。手動で実行する（Actions →「Androidアプリを作る」→ Run workflow）。
+# できるもの（GitHub のリリース android-native-<versionName>-<versionCode> の添付ファイルに置く。クラウドからはアーティファクトを取り出せないため）：
+#   ① loto-jinja-<版>-debug.apk ……………… デバッグ署名の APK（実機に入れて確かめる用）
+#   ② loto-jinja-<版>-release-unsigned.aab … 署名なしの AAB（CEO が手元で本番の鍵で署名してから Play に上げる）
+#   ③ loto-jinja-<版>-release-unsigned.apk … 署名なしの APK（同じく署名してから使う）
+#   ④ emulator-*.png・emulator-summary.txt・emulator-logcat.txt … エミュレーターで操作したときの画面とログ（CEO・QA が見る）
+# 本番の署名鍵は GitHub に置かない。版の番号は android/app/build.gradle の versionCode・versionName。
 name: Androidアプリを作る
 on:
   workflow_dispatch:
 permissions:
-  contents: write  # 署名前の .aab をリリースの添付ファイルとして置くため
+  contents: write  # リリースを作って添付ファイルを置くため
+concurrency:
+  group: android
+  cancel-in-progress: false
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      ver: ${{ steps.ver.outputs.ver }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: '17' }
+        with: { distribution: temurin, java-version: '21' }
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - name: TWA プロジェクトを作る
-        working-directory: tools/android
-        run: npm install --no-audit --no-fund && cd ../.. && node tools/android/generate.mjs
-      - name: .aab を作る（署名なし）
+        with: { node-version: 22, cache: npm }
+      - uses: android-actions/setup-android@v3
+      - name: 部品を入れる
+        run: npm ci --no-audit --no-fund
+      - name: テスト
+        run: node tools/test.mjs
+      - name: 画面のファイルをアプリに入れる（src/ → www/ → android/）
+        run: npm run build:web && npx cap sync android
+      - name: 版の番号
+        id: ver
+        run: |
+          code=$(grep -oP 'versionCode\s+\K\d+' android/app/build.gradle)
+          name=$(grep -oP 'versionName\s+"\K[^"]+' android/app/build.gradle)
+          echo "ver=$name-$code" >> "$GITHUB_OUTPUT"
+          echo "版：$name（$code）"
+      - name: ビルド（デバッグ APK・署名なしのリリース AAB と APK）
         working-directory: android
-        run: ./gradlew bundleRelease --no-daemon --stacktrace
+        run: ./gradlew assembleDebug bundleRelease assembleRelease --no-daemon --stacktrace
+      - name: できたファイルをまとめる
+        run: |
+          v=${{ steps.ver.outputs.ver }}
+          mkdir -p out
+          cp android/app/build/outputs/apk/debug/app-debug.apk "out/loto-jinja-$v-debug.apk"
+          cp android/app/build/outputs/bundle/release/app-release.aab "out/loto-jinja-$v-release-unsigned.aab"
+          cp android/app/build/outputs/apk/release/app-release-unsigned.apk "out/loto-jinja-$v-release-unsigned.apk"
+          (cd out && sha256sum * > "loto-jinja-$v-SHA256SUMS.txt" && cat "loto-jinja-$v-SHA256SUMS.txt")
+          # AdMob のアプリIDが入っていることを確かめる（src/ads-config.js の appId）
+          "$ANDROID_HOME"/build-tools/*/aapt2 dump xmltree "out/loto-jinja-$v-release-unsigned.apk" --file AndroidManifest.xml | grep -A1 'gms.ads.APPLICATION_ID' | tail -1
       - uses: actions/upload-artifact@v4
         with:
-          name: loto-jinja-aab-unsigned
-          path: android/app/build/outputs/bundle/release/*.aab
+          name: debug-apk
+          path: out/*-debug.apk
           if-no-files-found: error
-      - name: 署名前の .aab をリリースに置く（署名用に取り出すため。鍵は含まない）
+      - name: リリースに置く（署名なし。鍵は含まない）
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ver=$(node -p "const c=require('./tools/android/app.json'); c.versionName+'-'+c.versionCode")
-          tag="android-unsigned-$ver"
-          cp android/app/build/outputs/bundle/release/*.aab "loto-jinja-$ver-unsigned.aab"
-          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --target "$GITHUB_SHA" --title "Android 署名前ビルド $ver" --notes "署名前の .aab（Play には署名後のものを上げる）"
-          gh release upload "$tag" "loto-jinja-$ver-unsigned.aab" --clobber
+          v=${{ steps.ver.outputs.ver }}
+          tag="android-native-$v"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --target "$GITHUB_SHA" --title "Android ネイティブ版 $v" \
+            --notes "Capacitor のネイティブ版。debug.apk は実機確認用（デバッグ署名）。release-unsigned.aab / .apk は署名前（Play には本番の鍵で署名したものを上げる）。emulator-* はエミュレーターでの確認結果。"
+          gh release upload "$tag" out/* --clobber
+
+  emulator:
+    # エミュレーターでデバッグ APK を起動し、同意 → ホーム → 神託（テスト広告）→ マイ番号 → 戻るボタン を adb で操作して画面を撮る。
+    # クラウドからはみずほ銀行の公式サイトが 403 になるので、予備（GitHub Pages）に切り替わる動きを確かめることになる（それで正しい）
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/download-artifact@v4
+        with: { name: debug-apk, path: apk }
+      - name: KVM を使えるようにする（エミュレーターを速くする）
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: エミュレーターで確かめる
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: bash tools/app/emulator-check.sh apk/*-debug.apk emulator-out
+      - name: 画面とログをリリースに置く
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la emulator-out || exit 0
+          tag="android-native-${{ needs.build.outputs.ver }}"
+          gh release upload "$tag" emulator-out/* --clobber

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#B8231C</color>
+    <!-- アプリの色（src/style.css と同じ）：朱色・生成り色 -->
+    <color name="shu">#B8231C</color>
+    <color name="kinari">#FBF6EE</color>
+</resources>

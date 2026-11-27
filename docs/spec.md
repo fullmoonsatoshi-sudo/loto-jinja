@@ -6,7 +6,7 @@
 - 元にしたキャラ設定：`docs/characters.md`
 
 ## 1. 技術構成
-- 種類：ブラウザで動く Web アプリ（PWA）。後で Android アプリに包んで（TWA）Google Play に出す
+- 種類：ブラウザで動く Web アプリ（PWA）と、同じ画面を中に入れた Android のネイティブアプリ（Capacitor。2026-11-27 に TWA から作り変え。詳細は `docs/android-native.md`）
 - 言語：HTML + CSS + JavaScript（ライブラリなし。ビルド不要）
 - データ：`src/data/loto6.json`、`src/data/loto7.json`（全回の当せん番号・口数・当せん金額）、`src/data/miniloto.json`・`bingo5.json`・`numbers3.json`・`numbers4.json`（全回の当せん番号。当せん金は分かる回だけ）
 - 利用者のデータ（マイ番号、設定）：端末のブラウザ内（localStorage）だけに保存。サーバーには送らない
@@ -17,7 +17,7 @@
 - 自動更新：`tools/update-data.mjs` がまず公式の回別 CSV（ロト6：`A102<回>.CSV`、ロト7：`A103<回>.CSV`）を試す。公式はクラウド（GitHub Actions）からのアクセスを403で拒否するため（2026-11-26 本番で確認）、そのときは予備の公開データ（jjayck/lotoanaba-data、`tools/mirror.mjs`）から取り込む。予備データは、取り込み済みの直近20回と完全一致し、meta.json の SHA-256 と一致したときだけ使う。予備経由の回にはキャリーオーバーが無いため、抽せんの翌朝（火・金・土 7:40）に Claude の定期タスクが公式CSVを読み、`tools/set-carryover.mjs` で書き足す（公式CSVと取り込み済みの本数字・ボーナス・口数・金額が完全一致したときだけ）。`.github/workflows/deploy.yml` で抽せん日の夜（月・木・金 19:00〜23:30 に30分おき＋翌朝7時）に自動実行
 - 形式：`{ n: 回, date: "YYYY-MM-DD", main: [本数字], bonus: [ボーナス数字], winners: [等級ごとの口数], prizes: [等級ごとの当せん金額] }`
 - キャリーオーバー：公式CSVの「キャリーオーバー」行から取り込む（`carryover`）。第2157回（ロト6）・第704回（ロト7）以降は値あり。それより前の回は取り込み元に無いため表示しない（ホームは常に最新回なので必ず表示される）
-- 公式CSVの形式（実物は `tools/fixtures/`）：Shift_JIS、日付は和暦（令和）、等級は全角（１等）。読み取りは `tools/csv.mjs`
+- 公式CSVの形式（実物は `tools/fixtures/`）：Shift_JIS、日付は和暦（令和）、等級は全角（１等）。読み取りは `src/csv.js`（アプリと共通。`tools/csv.mjs` はこれをそのまま使う）
 
 ## 3. 機能ごとの仕様
 
@@ -79,13 +79,14 @@ tools/
 ├── init-hub-data.mjs  ← 新しい4種類のデータを最初に作る（初回のみ）
 ├── set-official.mjs   ← 公式CSVから当せん金を書き足す
 ├── set-carryover.mjs  ← 公式CSVからキャリーオーバーを書き足す（ロト6・7）
-├── csv.mjs            ← 公式CSVの読み取り
+├── csv.mjs            ← 公式CSVの読み取り（中身は src/csv.js）
+├── app/               ← Android アプリ（www/ を作る・アイコン・エミュレーターでの確認）
 ├── fixtures/          ← 公式CSVの実物（テスト用。official/ はミニロト・ビンゴ5・ナンバーズと照合済みの直近20回）
 └── test.mjs        ← 計算ロジックのテスト
 ```
 
 ## 5. やらないこと（MVP）
-- くじの購入、通知、ログイン、広告、課金、ジャンボなどの通常くじ
+- くじの購入、通知、ログイン、課金、ジャンボなどの通常くじ（広告は Android アプリにだけ入れた。`docs/android-native.md`）
 
 ## 6. 追加：ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4（2026-11-27）
 
@@ -112,7 +113,7 @@ tools/
 - 失敗の扱い：ロト6・ロト7の取り込み（`update-data.mjs loto`）とは別の手順。新しい4種類の取り込みに失敗したとき、または取り込んだあとのテスト（`tools/test.mjs`）が通らないとき（このときは新しい4種類の取り込みを取り消す）も、ロト6・ロト7の保存と公開は続ける。失敗は、公開のあとの `hub-failed` ジョブが失敗になることで分かる（スクリプト単体の終了コードは 3）
 - テスト：当せん金のテストは公式の値を入れた回（fixtures の直近20回）で行い、「最新回」は使わない。さらに「4種類すべてに当せん金なしの新しい回を3回ずつ追記した状態でも全テストが通る」ことを、データのコピーで毎回確かめる
 - 当せん金の書き足し：`node tools/set-official.mjs <loto6|loto7|miniloto|bingo5|numbers> <公式CSV>`。公式CSVの回・日付・数字（ロトはボーナスも）が手元と完全に一致したときだけ `winners`・`prizes`（ロト6・7はキャリーオーバーも）を書き足す。記録済みの値と食い違えば上書きしない。ナンバーズは1ファイルで3と4の両方に書く（両方そろって一致したときだけ）。終了コードは `set-carryover.mjs` と同じ（0=書いた／記録済み、2=使い方、3=未取り込みの回、4=不一致など、5=CSVが読めない）。公式はクラウドからのアクセスを拒否するので、Claude の定期タスクなどが公式CSVを読んで渡す想定
-- 公式CSVの形（実物は `tools/fixtures/official/`、Shift_JIS・CRLF）：ミニロトはロトと同じ形（キャリーオーバー行なし）、ビンゴ5は「ビンゴ５抽せん数字,03,09,…」と１等〜７等、ナンバーズは「ナンバーズ３抽せん数字,412」の後にストレート〜ミニ、続いて「ナンバーズ４抽せん数字」。読み取りは `tools/csv.mjs`（`parseCsv('miniloto')`・`parseBingo5Csv`・`parseNumbersCsv`）。URL は `officialCsvUrl`
+- 公式CSVの形（実物は `tools/fixtures/official/`、Shift_JIS・CRLF）：ミニロトはロトと同じ形（キャリーオーバー行なし）、ビンゴ5は「ビンゴ５抽せん数字,03,09,…」と１等〜７等、ナンバーズは「ナンバーズ３抽せん数字,412」の後にストレート〜ミニ、続いて「ナンバーズ４抽せん数字」。読み取りは `src/csv.js`（`parseCsv('miniloto')`・`parseBingo5Csv`・`parseNumbersCsv`）。URL は `officialCsvUrl`
 
 ### 6-3. 画面
 - くじの切り替え：6種類（ロト6・ロト7・ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4）。幅640px未満は3つずつ2段、それ以上は1段。最後に選んだくじを `lotojinja.game` に保存（6種類のどれかでなければロト6）

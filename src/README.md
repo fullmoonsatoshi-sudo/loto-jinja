@@ -19,7 +19,7 @@ npx serve .
 GitHub（fullmoonsatoshi-sudo/loto-jinja）では `.github/workflows/deploy.yml` が、ロト6・ロト7の抽せん日の夜（19:00〜23:30 に30分おき）と、月〜金の抽せんの翌朝6時〜10時（1時間おき）と毎日12時・15時・18時（ミニロト・ビンゴ5・ナンバーズだけ）に自動で取り込み、公開ページも更新します。
 当せん金の書き足し：`node tools/set-official.mjs <種類> <公式CSV>`（詳しくは docs/spec.md の 6-2）
 
-## Google Play に出すまで
-1. 公開ページ：https://fullmoonsatoshi-sudo.github.io/loto-jinja/（GitHub Pages）
-2. Bubblewrap（Google の公式ツール）で Android アプリ（TWA）に包む
-3. Google Play Console（オーナー本人のデベロッパー登録が必要）で審査に出す
+## Android アプリ（Google Play）
+1. 公開ページ（Web 版）：https://fullmoonsatoshi-sudo.github.io/loto-jinja/（GitHub Pages）
+2. Android アプリは、この src/ をそのまま中に入れたネイティブアプリ（Capacitor）。アプリの中では公式CSVを直接読み、広告（AdMob）を出す。作り方・広告IDの切り替えは docs/android-native.md
+3. Google Play Console（オーナー本人のデベロッパー登録が必要）で審査に出す（docs/owner-handoff.md）

@@ -8,7 +8,8 @@
 - 取り込み：公式サイトはクラウドからの自動アクセスを受け付けないため、公開データ [jjayck/lotoanaba-data](https://github.com/jjayck/lotoanaba-data) を経由しています（取り込み済みの直近20回と完全一致し、SHA-256 が合うときだけ追加）。
 
 ## しくみ
-- `src/` … アプリ本体（HTML・CSS・JavaScript。ビルド不要）
+- `src/` … アプリ本体（HTML・CSS・JavaScript。ビルド不要）。Web 版はこのまま公開し、Android アプリ（Capacitor のネイティブ版。`android/`）にもこのまま入れる（`docs/android-native.md`）
+- `.github/workflows/android.yml` … Android アプリを作り、エミュレーターで確かめる（手動実行。署名前のファイルを GitHub リリースに置く）
 - `tools/update-data.mjs` … 新しい回を取り込む（公式 → だめなら予備の公開データ `tools/mirror.mjs`）
 - `.github/workflows/deploy.yml` … 抽せん日の夜に自動で取り込み、GitHub Pages に公開する
 - `tools/test.mjs` … テスト（`node tools/test.mjs`）
