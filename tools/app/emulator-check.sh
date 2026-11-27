@@ -9,13 +9,14 @@ PKG=io.github.fullmoonsatoshisudo.lotojinja
 mkdir -p "$OUT"
 adb wait-for-device
 adb shell settings put global window_animation_scale 0 || true
+adb shell settings put global hide_error_dialogs 1 || true  # 「応答していません」のダイアログで画面がふさがれないように
 # 起動直後は Google Play 開発者サービスの準備・更新が続くので、落ち着くまで待つ
 for i in $(seq 1 30); do [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ] && break; sleep 2; done
 sleep 60
 adb install -r "$APK"
 adb logcat -c
 adb shell am start -n "$PKG/.MainActivity"
-node tools/app/emulator-check.mjs "$OUT" "$PKG"
+timeout 1500 node tools/app/emulator-check.mjs "$OUT" "$PKG"
 code=$?
 adb logcat -d -v time > "$OUT/emulator-logcat.txt" || true
 # クラッシュ・JS のエラーがログに無いこと

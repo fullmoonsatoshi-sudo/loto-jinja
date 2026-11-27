@@ -71,7 +71,7 @@ jobs:
     # クラウドからはみずほ銀行の公式サイトが 403 になるので、予備（GitHub Pages）に切り替わる動きを確かめることになる（それで正しい）
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

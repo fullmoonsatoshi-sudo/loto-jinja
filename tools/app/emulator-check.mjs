@@ -7,7 +7,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 
 const [OUT, PKG] = process.argv.slice(2);
-const adb = (...a) => execFileSync('adb', a, { encoding: 'utf8', maxBuffer: 64 << 20 });
+const adb = (...a) => execFileSync('adb', a, { encoding: 'utf8', maxBuffer: 64 << 20, timeout: 60000 }); // 止まったままにならないよう60秒で打ち切る
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const lines = [];
 let failed = 0;
@@ -16,7 +16,7 @@ const check = (name, ok, extra = '') => { note(`${ok ? 'OK' : 'NG'}  ${name}${ex
 let shotNo = 0;
 const shot = name => {
   const f = `${OUT}/emulator-${String(++shotNo).padStart(2, '0')}-${name}.png`;
-  fs.writeFileSync(f, execFileSync('adb', ['exec-out', 'screencap', '-p'], { maxBuffer: 64 << 20 }));
+  fs.writeFileSync(f, execFileSync('adb', ['exec-out', 'screencap', '-p'], { maxBuffer: 64 << 20, timeout: 60000 }));
   note(`画面：${f.split('/').pop()}`);
 };
 const resumed = () => { try { return (adb('shell', 'dumpsys', 'activity', 'activities').match(/(?:mResumedActivity|topResumedActivity)[^\n]*/) || [''])[0]; } catch { return ''; } };
@@ -167,8 +167,8 @@ async function main() {
     }
     check('リワード広告を閉じてアプリに戻る', !/AdActivity/.test(resumed()));
   }
-  const cut = await waitFor("!!document.querySelector('.cutin')", 8000);
-  if (cut) shot('cutin');
+  const cut = await waitFor("!!document.querySelector('.cutin.in')", 8000);
+  if (cut) { await sleep(500); shot('cutin'); }
   check('神託：ご祈祷カットイン → 神託が出る', await waitFor("document.querySelectorAll('#oracleResult .ticket').length > 0", 20000));
   note(`リワード広告の結果：${consoleLog.filter(l => /リワード広告/.test(l)).join(' ／ ') || (adShown ? '報酬あり（最後まで見た）' : '')}`);
   await sleep(1500);
@@ -208,6 +208,14 @@ for (let attempt = 1; attempt <= 2; attempt++) {
     if (attempt === 1 && lost) {
       note(`--- 1回目は途中で WebView との接続が切れました（${e.message}。アプリの状態：${resumed().trim() || '終了'}）。最初からやり直します ---`);
       failed = 0; jsErrors.length = 0;
+      // 1回目の終わり方が分かるよう、ここまでのログを残す（クラッシュならアプリの問題、Google Play 開発者サービスの入れ替わりならエミュレーターの問題）
+      try {
+        const log = adb('logcat', '-d', '-v', 'time');
+        fs.writeFileSync(`${OUT}/emulator-logcat-attempt1.txt`, log);
+        const why = log.split('\n').filter(l => new RegExp(`FATAL EXCEPTION|Killing \\d+:${PKG.replace(/\./g, '\\.')}|Process ${PKG.replace(/\./g, '\\.')}.*has died|ANR in`).test(l));
+        note(`1回目のアプリの終わり方：${why.slice(0, 5).join(' ／ ') || '（ログに記録なし）'}`);
+        adb('logcat', '-c');
+      } catch (e2) { note(`ログを残せませんでした：${e2.message}`); }
       adb('shell', 'am', 'force-stop', PKG); adb('shell', 'pm', 'clear', PKG);
       await sleep(3000);
       adb('shell', 'am', 'start', '-n', `${PKG}/.MainActivity`);
