@@ -217,7 +217,11 @@ for (let attempt = 1; attempt <= 2; attempt++) {
     break;
   }
 }
-const errs = jsErrors.filter(Boolean);
+// Capacitor 本体（SystemBars）が、ページの読み込み直後でまだ <html> が無いときに余白の値を入れようとして出す既知のエラーは除く
+// （次の描画で入れ直されるので画面には影響しない。アプリのコードのエラーではない）
+const KNOWN = /Error injecting safe area CSS/;
+const errs = jsErrors.filter(e => e && !KNOWN.test(e));
+if (jsErrors.some(e => e && KNOWN.test(e))) note('参考：Capacitor 本体の既知のエラー「Error injecting safe area CSS」は除外（読み込み直後だけ。画面に影響なし）');
 check('JS のエラー（例外・console.error）が無い', errs.length === 0, errs.slice(0, 5).join(' ／ '));
 note('--- console（warn/info/log の一部） ---');
 consoleLog.slice(0, 60).forEach(l => lines.push(l));

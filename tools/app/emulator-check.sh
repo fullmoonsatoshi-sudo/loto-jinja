@@ -22,7 +22,8 @@ adb logcat -d -v time > "$OUT/emulator-logcat.txt" || true
 if grep -E "FATAL EXCEPTION|E/AndroidRuntime" "$OUT/emulator-logcat.txt" | grep -v "^--" > "$OUT/crash.txt"; then
   if [ -s "$OUT/crash.txt" ]; then echo "クラッシュがありました"; cat "$OUT/crash.txt"; code=1; fi
 fi
-if grep -E "E/Capacitor/Console" "$OUT/emulator-logcat.txt" > "$OUT/jserr.txt" && [ -s "$OUT/jserr.txt" ]; then
+# Capacitor 本体の既知のエラー（読み込み直後に余白の値を入れようとして失敗する。画面に影響なし）は除く
+if grep -E "E/Capacitor/Console" "$OUT/emulator-logcat.txt" | grep -v "Error injecting safe area CSS" > "$OUT/jserr.txt" && [ -s "$OUT/jserr.txt" ]; then
   echo "JS のエラーがありました"; cat "$OUT/jserr.txt"; code=1
 fi
 { echo; echo "logcat：クラッシュ $(wc -l < "$OUT/crash.txt" 2>/dev/null || echo 0) 行、JS エラー（Capacitor/Console の E）$(wc -l < "$OUT/jserr.txt" 2>/dev/null || echo 0) 行"; echo "終了コード：$code"; } >> "$OUT/emulator-summary.txt"
