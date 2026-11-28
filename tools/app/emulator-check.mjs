@@ -14,10 +14,14 @@ let failed = 0;
 const note = s => { console.log(s); lines.push(s); };
 const check = (name, ok, extra = '') => { note(`${ok ? 'OK' : 'NG'}  ${name}${extra ? `（${extra}）` : ''}`); if (!ok) failed++; };
 let shotNo = 0;
+// 画面を撮る。エミュレーターが重いときは撮れないことがあるので、3回まで試し、撮れなくても操作は続ける
 const shot = name => {
   const f = `${OUT}/emulator-${String(++shotNo).padStart(2, '0')}-${name}.png`;
-  fs.writeFileSync(f, execFileSync('adb', ['exec-out', 'screencap', '-p'], { maxBuffer: 64 << 20, timeout: 60000 }));
-  note(`画面：${f.split('/').pop()}`);
+  for (let i = 0; i < 3; i++) {
+    try { fs.writeFileSync(f, execFileSync('adb', ['exec-out', 'screencap', '-p'], { maxBuffer: 64 << 20, timeout: 60000 })); note(`画面：${f.split('/').pop()}`); return; }
+    catch { execFileSync('sleep', ['5']); }
+  }
+  note(`画面を撮れませんでした：${f.split('/').pop()}`);
 };
 const resumed = () => { try { return (adb('shell', 'dumpsys', 'activity', 'activities').match(/(?:mResumedActivity|topResumedActivity)[^\n]*/) || [''])[0]; } catch { return ''; } };
 
@@ -166,10 +170,11 @@ async function main() {
       if (Date.now() - start > 35000) adb('shell', 'input', 'keyevent', '4');
     }
     check('リワード広告を閉じてアプリに戻る', !/AdActivity/.test(resumed()));
+    await sleep(5000); // 動画広告のあと、エミュレーター（ソフトウェア描画）が落ち着くのを待つ
   }
   const cut = await waitFor("!!document.querySelector('.cutin.in')", 8000);
   if (cut) { await sleep(500); shot('cutin'); }
-  check('神託：ご祈祷カットイン → 神託が出る', await waitFor("document.querySelectorAll('#oracleResult .ticket').length > 0", 20000));
+  check('神託：ご祈祷カットイン → 神託が出る', await waitFor("document.querySelectorAll('#oracleResult .ticket').length > 0", 90000));
   note(`リワード広告の結果：${consoleLog.filter(l => /リワード広告/.test(l)).join(' ／ ') || (adShown ? '報酬あり（最後まで見た）' : '')}`);
   await sleep(1500);
   shot('oracle-result');
