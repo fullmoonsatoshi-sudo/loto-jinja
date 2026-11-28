@@ -95,7 +95,7 @@ jobs:
           ram-size: 4096M
           heap-size: 576M
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          emulator-options: -no-window -gpu swangle_indirect -noaudio -no-boot-anim -no-snapshot
           script: bash tools/app/emulator-check.sh apk/*-debug.apk emulator-out
       - name: エミュレーターで確かめる（2回目。ソフトウェア描画のエミュレーターは動画広告のあとに応答しなくなることがあるため、1回だけやり直す）
         id: e2
@@ -110,7 +110,7 @@ jobs:
           ram-size: 4096M
           heap-size: 576M
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          emulator-options: -no-window -gpu swangle_indirect -noaudio -no-boot-anim -no-snapshot
           script: bash tools/app/emulator-check.sh apk/*-debug.apk emulator-out
       - name: 画面とログをリリースに置く
         if: always()
