@@ -306,3 +306,6 @@ a.tap-link { display: inline-flex; align-items: center; min-height: 44px; paddin
 /* アプリ：神託の残りの回数（ボタンのすぐ下） */
 .credit-note { margin: 8px 0 0; text-align: center; font-size: 15px; color: var(--ink-soft); }
 .credit-note b { color: var(--shu); font-size: 18px; margin: 0 2px; }
+/* アプリ：バナー広告とタブの間のすき間（16dp）を背景色で埋め、下の内容が透けて見えないようにする。
+   広告の高さ＋すき間（--ad-space）の帯をタブのすぐ上に敷く（バナーはその上に重なって表示される）。Web 版では --ad-space が無いので高さ0 */
+html.in-app body::after { content: ""; position: fixed; left: 0; right: 0; bottom: calc(var(--tab-h) + env(safe-area-inset-bottom)); height: var(--ad-space, 0px); background: var(--paper); z-index: 9; pointer-events: none; }

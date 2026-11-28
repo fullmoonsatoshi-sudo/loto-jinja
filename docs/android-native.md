@@ -38,6 +38,9 @@ Web 版（GitHub Pages）はこれまでどおり `src/` をそのまま公開�
   - 途中で閉じたら回数は増えず、神託も出さない（その旨を表示）。
   - **広告を読み込めない・用意できない（通信なし・在庫なし）ときは、回数を変えずに広告なしで神託を1回出す**（使えなくなる状態を作らない）。
   - Web 版（ブラウザ）は広告も回数の表示もなし（今までどおり何度でも）。
+- **プライバシーポリシーを開いて戻ったとき**：画面（ページ）は読み直されるが、広告の部品（ネイティブ）は残っているので、初期化・同意の確認・バナーの作成をやり直さない（済んだことを sessionStorage に覚え、バナーは出し直し（resumeBanner）だけ）。
+- **すき間**：バナーとタブの間は 16dp。すき間は背景色の帯で埋め、下の内容が透けないようにする。バナーを一時的に隠す間（ダイアログ・カットイン・リワード広告・確認から広告が終わるまで）も余白は残し、画面がずれないようにする。
+- **権限 FOREGROUND_SERVICE**：広告の部品（Google Mobile Ads SDK）が使う WorkManager が入れる。種類（`foregroundServiceType`）の指定も種類ごとの権限（`FOREGROUND_SERVICE_*`）も無いので、**Play Console の「フォアグラウンド サービスの権限」の申告は不要**（申告は Android 14 以降を対象にしたアプリが使う種類ごとに求められる）。外すと、SDK が内部で前面サービスを使ったときに止まるおそれがあるため、外さずに残す。もし Play Console で申告を求められたら、その画面の案内どおりに「使っていない」と答える。
 - **同意（UMP）**：起動時に `requestConsentInfo` → 必要なら `showConsentForm`（日本では通常表示されない）。地域によって「プライバシー設定の入口」が必要と返ってきたとき（`privacyOptionsRequirementStatus: REQUIRED`。米国の GitHub Actions のエミュレーターではそうなった）は、設定の画面に「広告のプライバシー設定」ボタンを出す。
 - 子ども向けとして扱わない（`tagForChildDirectedTreatment: false`、`tagForUnderAgeOfConsent: false`）。
 - Web 版（ブラウザ）では広告を出さない。
@@ -65,9 +68,19 @@ export const ADS = {
   google.com, pub-XXXXXXXXXXXXXXXX, DIRECT, f08c47fec0942fa0
   ```
 - 手順：GitHub で `fullmoonsatoshi-sudo.github.io` というリポジトリを作る（無ければ。公開・main ブランチ）→「Add file → Create new file」で `app-ads.txt` を作って上の1行を書いて保存 → 数分後に上のURLで開けることを確かめる。
-- Play Console の「ストアの掲載情報 → 連絡先 → ウェブサイト」に `https://fullmoonsatoshi-sudo.github.io` を入れる（AdMob はこのサイトの直下の app-ads.txt を見にいく）。AdMob の管理画面「アプリ → app-ads.txt」で確認できるまで1日ほどかかる。
+- Play Console の「ストアの掲載情報 → 連絡先 → ウェブサイト」に `https://fullmoonsatoshi-sudo.github.io` を入れる（AdMob はこのサイトの直下の app-ads.txt を見にいく）。
+
+### 3-3. Play で公開したあと：AdMob のアプリを Play のストア掲載にリンクする（オーナー）
+app-ads.txt の確認は、AdMob のアプリが **Play のストア掲載とリンクされてから** 始まる。リンクできるのは Play で公開されたあと（クローズドテストの間は検索に出ないことがある）。
+1. Play で製品版（またはオープンテスト）として公開され、Play ストアでアプリのページが開けることを確かめる。
+2. AdMob（https://admob.google.com）→「アプリ」→「当たれ！ロト神社」→「アプリの設定」→「アプリストアの詳細」の「追加」（「ストアを追加」）を押す。
+3. 「Google Play」を選び、パッケージ名 `io.github.fullmoonsatoshisudo.lotojinja` かアプリ名で検索して、出てきたアプリを選び「追加」。
+4. リンクされると、AdMob がストア掲載の「デベロッパーのウェブサイト」（`https://fullmoonsatoshi-sudo.github.io`）を読み、その直下の `app-ads.txt` を探しにいく。
+5. 確認の進み方：AdMob の「アプリ → app-ads.txt」の画面で、状態が「確認中」→「確認済み」になる（ふつう1日、長いと数日）。「見つかりません」「一致しません」と出たら、①ストア掲載のウェブサイトの URL、②`https://fullmoonsatoshi-sudo.github.io/app-ads.txt` が開けるか、③中のパブリッシャーIDが AdMob のものと同じか、を確かめて「アップデートを確認」を押す。
+6. 確認が済むまでは広告の配信が少ないことがある（app-ads.txt が無い・確認前のアプリは、広告主によっては配信しない）。アプリの動きには影響しない。
 
 ## 4. Android らしい動き
+- バックアップ：`android:allowBackup="false"`、Android 12 以降の `dataExtractionRules`（`res/xml/data_extraction_rules.xml`）でクラウドへのバックアップと機種変更時の移行の両方からアプリのデータを外す（プライバシーポリシーの「端末の中だけに保存」と合わせる。機種変更するとマイ番号・神託の回数は引き継がれない）。
 - 戻るボタン：カットイン中はカットインを閉じる → ダイアログを閉じる（確認は「やめる」と同じ）→ ホーム以外の画面はホームへ → ホームならアプリを閉じる。18歳以上の確認の画面ではアプリを閉じる。プライバシーポリシーの画面ではアプリの画面に戻る。
 - ステータスバー・ナビゲーションバー：Capacitor の SystemBars（`capacitor.config.json`）で余白（safe area）を CSS に渡す。バーの色は上部の帯と同じ朱色、アイコンは白。
 - スプラッシュ画面：生成り色の背景にアイコン。
@@ -77,7 +90,10 @@ export const ADS = {
   - `loto-jinja-<版>-debug.apk`：デバッグ署名（実機確認用。`android/app/debug.keystore` は Android 標準のデバッグ用の鍵で、毎回同じ鍵にして上書きインストールできるようにしたもの。Play の署名とは無関係）
   - `loto-jinja-<版>-release-unsigned.aab`／`-release-unsigned.apk`：署名なし。**本番の署名鍵は GitHub に置かない**（CEO が手元で署名する。手順は `docs/owner-handoff.md`）
   - `loto-jinja-<版>-SHA256SUMS.txt`
-  - `emulator-NN-*.png`・`emulator-summary.txt`・`emulator-logcat.txt`：エミュレーター（Android 14）で、起動 → 同意 → ホーム → 神託（テスト広告を最後まで見る → あと2回 → 2回目・3回目は広告なし → 4回目でまた確認）→ マイ番号 → 戻るボタン を adb で操作した画面とログ（`tools/app/emulator-check.sh`・`emulator-check.mjs`）。クラウドからはみずほ銀行の公式サイトが 403 になるので、エミュレーターでは**予備（GitHub Pages）に切り替わる**動きを確かめる。
+  - `emulator-api34-*`・`emulator-api35-*`・`emulator-api36-*`（画面 `NN-*.png`・`summary.txt`・`logcat.txt`）：Android 14・15・16 のエミュレーターで、起動 → 同意 → ホーム → 神託（テスト広告を最後まで見る → あと2回 → 2回目・3回目は広告なし → 4回目でまた確認）→ マイ番号 → 設定 → プライバシーポリシーを開いて戻る → 戻るボタン を adb で操作した画面とログ（`tools/app/emulator-check.sh`・`emulator-check.mjs`）。
+    - 画面下の重なりも数字で確かめる：バナー広告の下端とタブの上端のすき間（16dp）、タブのボタンとジェスチャーバー（ナビゲーションバー）が重ならないこと。Android 15 以降は targetSdk 36 のため画面いっぱい（edge-to-edge）の表示が強制されるので、そこを特に見る。
+    - プライバシーポリシーを開いて戻ると画面が読み直されるが、広告の初期化とバナーの作成は1回のまま（出し直しだけ）であることを確かめる。
+  - 公式（みずほ銀行）の CSV について：以前は「クラウドからは 403」と考えていたが、それは取り込みスクリプトの User-Agent のとき。アプリのネイティブ通信（WebView の User-Agent）なら、GitHub Actions のエミュレーターからも **200 で読めた**（2026-11-27 に確認。一覧の `Cache-Control` は `max-age=1800`）。そのためエミュレーターでは公式から取り込む動きになる。**予備（GitHub Pages）への切り替え**（公式が 403・形式が変わった・大きく遅れている・両方だめ）は、`node tools/test.mjs` の「予備へ切り替え」などのテスト（通信を差し替えて確かめる）で確認している。
 - 手元で作るとき（Android Studio がある場合）：`npm ci` → `npm run sync` → `android/` を Android Studio で開く。
 
 ## 6. ファイル

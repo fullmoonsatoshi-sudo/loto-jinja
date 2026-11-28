@@ -87,7 +87,7 @@ const state = {
   char: store.get('char', 'miko', isChar),
   data: {},
   bundled: {},         // アプリ：同梱データ（取り込んだ回を重ねる前）
-  oracle: { school: 'hot', count: 3, result: null, praying: false, run: 0, adBusy: false, adNote: '' }, // adBusy・adNote：アプリのリワード広告
+  oracle: { school: 'hot', count: 3, result: null, praying: false, run: 0, adBusy: false, adFlow: false, adNote: '' }, // adBusy・adFlow・adNote：アプリのリワード広告
   trend: 100,
   histShown: 50,
   histQuery: '',
@@ -501,18 +501,22 @@ async function doOracle() {
 // 広告を用意できないとき（通信なし・在庫なし）は、回数を変えずに広告なしで神託を1回出す（使えなくなる状態を作らない）
 async function oracleWithAd() {
   const o = state.oracle;
-  if (o.praying || o.adBusy) return;
+  if (o.praying || o.adBusy || o.adFlow) return;
   o.adNote = '';
+  // 確認ダイアログからリワード広告が終わるまでは、バナーを出し直さない（ダイアログが閉じた瞬間に出てしまわないように）
+  o.adFlow = true;
+  try { await oracleWithAdInner(o); } finally { o.adFlow = false; updateBanner(); }
+}
+async function oracleWithAdInner(o) {
   const C = await creditsMod;
   const res = await C.requestOracle(appStore, {
     confirm: () => confirmDialog(`広告を見ると神託を${C.CREDITS_PER_AD}回いただけます。`, '広告を見る', 'やめる'),
     showAd: async () => {
-      o.adBusy = true; render();
+      o.adBusy = true; render(); updateBanner();
       const N = await nativeMod;
       let r = 'unavailable';
       try { r = await N.showRewarded(); } catch (e) { console.warn('リワード広告：', e && e.message); }
       o.adBusy = false;
-      updateBanner();
       console.info(`リワード広告：${r}`); // rewarded（最後まで見た）／cancelled（途中で閉じた）／unavailable（用意できない）
       return r;
     },
@@ -869,7 +873,7 @@ document.addEventListener('compositionend', e => { if (e.target.id === 'histQ') 
 // バナーは、18歳以上の確認のあと、ダイアログ・カットイン・リワード広告が出ていないときだけ出す（画面下のタブの真上。native.js）
 function updateBanner() {
   if (!IS_APP) return;
-  const want = store.get('agreed', false, v => v === true) && !document.querySelector('dialog[open]') && !document.querySelector('.cutin') && !state.oracle.adBusy;
+  const want = store.get('agreed', false, v => v === true) && !document.querySelector('dialog[open]') && !document.querySelector('.cutin') && !state.oracle.adBusy && !state.oracle.adFlow;
   nativeMod.then(N => N.setBannerWanted(want));
 }
 function onBack() {
@@ -901,7 +905,7 @@ if (IS_APP) {
     const a = e.target.closest('a[href="privacy.html"]');
     if (!a) return;
     e.preventDefault();
-    nativeMod.then(N => N.setBannerWanted(false)).finally(() => setTimeout(() => { location.href = 'privacy.html'; }, 150));
+    nativeMod.then(N => N.setBannerWanted(false)).finally(() => { location.href = 'privacy.html'; }); // 隠し終わってから移る
   }, true);
 }
 

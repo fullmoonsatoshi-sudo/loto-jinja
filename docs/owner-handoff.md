@@ -37,11 +37,15 @@ AdMob（https://admob.google.com）にオーナーの Google アカウントで�
    - ターゲット ユーザー：18歳以上（子ども向けではない）
    - データセーフティ（AdMob が集める情報の申告）
    - ニュースアプリ・金融機能・健康・政府アプリ：いずれも「いいえ」
+   - フォアグラウンド サービスの権限：申告は不要（広告の部品が入れる一般の権限だけで、種類ごとの権限は使っていない。求められたら「使っていない」と答える。詳細は `docs/android-native.md`）
 5. **app-ads.txt を置く**（パブリッシャーIDが決まってから。手順は `docs/android-native.md` の 3-2。このリポジトリからは置けないので、GitHub で `fullmoonsatoshi-sudo.github.io` リポジトリに1ファイル作ります）
 6. **クローズドテスト**（個人アカウントの必須ルール）
    - 「テスト → クローズドテスト」に署名済みの `.aab` を上げ、**12人以上**のテスターに参加してもらい、**14日間続けて**参加状態を保つ必要があります。
    - 終わったら「製品版へのアクセスを申請」。審査は通常7日以内です。
 7. **製品版として公開**。
+8. **公開後：AdMob のアプリを Play のストア掲載にリンクする**（app-ads.txt の確認はこのリンクのあとに始まります）
+   - AdMob →「アプリ」→「当たれ！ロト神社」→「アプリの設定」→「アプリストアの詳細」で「追加」→「Google Play」でパッケージ名 `io.github.fullmoonsatoshisudo.lotojinja` を検索して選ぶ。
+   - そのあと AdMob が Play のストア掲載の「ウェブサイト」（`https://fullmoonsatoshi-sudo.github.io`）の直下の `app-ads.txt` を読みにいきます。AdMob の「アプリ → app-ads.txt」で「確認済み」になれば完了（ふつう1日、長いと数日）。エラーのときの確かめ方は `docs/android-native.md` の 3-3。
 
 ## 実機で先に確かめるとき（ワイヤレスデバッグでインストール）
 パソコン（Mac）に Android の `adb` が必要です（Android Studio に入っています。または `brew install android-platform-tools`）。作業用のファイルは外付けHDDに置いてください。

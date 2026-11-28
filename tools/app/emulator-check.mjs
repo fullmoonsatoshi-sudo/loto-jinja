@@ -2,11 +2,12 @@
 // ・タップは adb（input tap）で行う。押す場所は、WebView の中の部品の位置（Chrome の開発者ツールの仕組みで読む）から計算する
 // ・同意 → ホーム（バナー広告・取り込み）→ 神託（リワードのテスト広告を最後まで見る）→ マイ番号（登録）→ 戻るボタン
 // ・JS のエラー（例外・console.error）が無いこと
-// 結果は <出力フォルダ>/emulator-summary.txt と emulator-NN-*.png
+// 結果は <出力フォルダ>/emulator-<印>-summary.txt と emulator-<印>-NN-*.png（印は API の番号。環境変数 EMU_TAG）
 import { execFileSync } from 'child_process';
 import fs from 'fs';
 
 const [OUT, PKG] = process.argv.slice(2);
+const TAG = process.env.EMU_TAG || 'api';
 const adb = (...a) => execFileSync('adb', a, { encoding: 'utf8', maxBuffer: 64 << 20, timeout: 60000 }); // 止まったままにならないよう60秒で打ち切る
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const lines = [];
@@ -16,7 +17,7 @@ const check = (name, ok, extra = '') => { note(`${ok ? 'OK' : 'NG'}  ${name}${ex
 let shotNo = 0;
 // 画面を撮る。エミュレーターが重いときは撮れないことがあるので、3回まで試し、撮れなくても操作は続ける
 const shot = name => {
-  const f = `${OUT}/emulator-${String(++shotNo).padStart(2, '0')}-${name}.png`;
+  const f = `${OUT}/emulator-${TAG}-${String(++shotNo).padStart(2, '0')}-${name}.png`;
   for (let i = 0; i < 3; i++) {
     try { fs.writeFileSync(f, execFileSync('adb', ['exec-out', 'screencap', '-p'], { maxBuffer: 64 << 20, timeout: 60000 })); note(`画面：${f.split('/').pop()}`); return; }
     catch { execFileSync('sleep', ['5']); }
@@ -85,13 +86,37 @@ async function waitFor(expr, ms = 30000) {
 
 // WebView の画面上の位置。1) uiautomator で読む 2) 画面の大きさとステータスバーの高さ（dumpsys）から計算 3) どちらもだめなら JS でクリックする
 let wv = null;
+// uiautomator の画面情報から WebView の位置を大きい順に（アプリの画面と、バナー広告の中身の WebView）
+function webviewsIn(xml) {
+  return [...xml.matchAll(/class="android\.webkit\.WebView"[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g)]
+    .map(m => ({ x1: +m[1], y1: +m[2], x2: +m[3], y2: +m[4] }))
+    .sort((a, b) => (b.x2 - b.x1) * (b.y2 - b.y1) - (a.x2 - a.x1) * (a.y2 - a.y1));
+}
+// 画面下の重なりを確かめる：バナー広告の下端とタブの上端のすき間（16dp）、タブとジェスチャーバー（ナビゲーションバー）が重ならないこと
+async function checkBottom(label) {
+  let xml = '';
+  for (let i = 0; i < 3 && !xml; i++) { try { adb('shell', 'uiautomator', 'dump', '/sdcard/ui.xml'); xml = adb('shell', 'cat', '/sdcard/ui.xml'); } catch { await sleep(1500); } }
+  const r = await js("(() => { const t = document.querySelector('nav.tabs').getBoundingClientRect(); const cs = getComputedStyle(document.documentElement); return { top: t.top, bottom: t.bottom, w: innerWidth, tabH: parseFloat(cs.getPropertyValue('--tab-h')), sab: parseFloat(getComputedStyle(document.querySelector('nav.tabs')).paddingBottom) || 0 }; })()");
+  const k = (wv.x2 - wv.x1) / r.w;
+  const tabsTop = wv.y1 + r.top * k, tabsBottom = wv.y1 + r.bottom * k, tabsContentBottom = tabsTop + r.tabH * k;
+  const views = xml ? webviewsIn(xml) : [];
+  const ad = views.slice(1).find(v => v.y2 <= tabsTop + 2 && v.y2 - v.y1 < 200 * k && v.x2 - v.x1 > 200 * k);
+  if (ad) {
+    const gap = (tabsTop - ad.y2) / k;
+    check(`${label}：バナー広告の下端とタブの上端のすき間が約16dp（重ならない）`, gap >= 14 && gap <= 20, `すき間 ${gap.toFixed(1)}dp・広告 [${ad.y1}-${ad.y2}]px・タブ上端 ${Math.round(tabsTop)}px`);
+  } else note(`${label}：バナー広告の位置を画面情報から読めませんでした（画面で確認）`);
+  let nav = null;
+  try { const m = adb('shell', 'dumpsys', 'window').match(/navigationBars[^\n]*?[Ff]rame=\[0,(\d+)\]\[\d+,(\d+)\]/); if (m) nav = { y1: +m[1], y2: +m[2] }; } catch { /* 読めない */ }
+  if (nav) check(`${label}：タブのボタンがジェスチャーバー（ナビゲーションバー）と重ならない`, tabsContentBottom <= nav.y1 + 2, `タブの下端 ${Math.round(tabsContentBottom)}px・バー [${nav.y1}-${nav.y2}]px・WebView [${wv.y1}-${wv.y2}]px・タブの下の余白 ${r.sab}px`);
+  else note(`${label}：ナビゲーションバーの位置を読めませんでした（画面で確認）`);
+}
 async function webviewBounds() {
   for (let i = 0; i < 3; i++) {
     try {
       adb('shell', 'uiautomator', 'dump', '/sdcard/ui.xml');
       const xml = adb('shell', 'cat', '/sdcard/ui.xml');
-      const m = xml.match(/class="android\.webkit\.WebView"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);
-      if (m) return { x1: +m[1], y1: +m[2], x2: +m[3], y2: +m[4], how: 'uiautomator' };
+      const all = webviewsIn(xml);
+      if (all.length) return { ...all[0], how: 'uiautomator' }; // いちばん大きい WebView がアプリの画面
     } catch (e) { note(`uiautomator で読めません：${String(e.message).split('\n')[0]}`); }
     await sleep(1000);
   }
@@ -125,7 +150,7 @@ const back = async () => { adb('shell', 'input', 'keyevent', '4'); await sleep(1
 // ---------- 操作 ----------
 async function main() {
   shotNo = 0;
-  for (const f of fs.readdirSync(OUT)) if (/^emulator-\d+-.*\.png$/.test(f)) fs.unlinkSync(`${OUT}/${f}`);
+  for (const f of fs.readdirSync(OUT)) if (/^emulator-.*-\d+-.*\.png$/.test(f)) fs.unlinkSync(`${OUT}/${f}`);
   const url = await connect();
   note(`WebView：${url}`);
   check('起動：18歳以上の確認が出る', await waitFor("!!document.querySelector('#gate[open]')", 60000));
@@ -147,6 +172,7 @@ async function main() {
   check('バナー広告（テスト）が出て、その分の余白がある', banner, `--ad-space=${await js("getComputedStyle(document.documentElement).getPropertyValue('--ad-space').trim()")}`);
   await sleep(2000);
   shot('home-banner');
+  await checkBottom('ホーム');
 
   // 神託（リワード広告）
   await tap('[data-tab=oracle]');
@@ -210,15 +236,33 @@ async function main() {
   await sleep(800);
   shot('mine');
 
-  // 戻るボタン：設定を閉じる → マイ番号 → ホーム → アプリを閉じる
+  // 戻るボタン：マイ番号 → ホーム
+  await back();
+  check('戻るボタン：マイ番号 → ホームに戻る', await waitFor("!!document.querySelector('.result-head')", 5000));
+  // 設定を開いて、戻るボタンで閉じる
   await tap('#openSettings');
   check('設定が開く', await waitFor("!!document.querySelector('#settings[open]')", 5000));
   shot('settings');
   await back();
   check('戻るボタン：設定を閉じる', await waitFor("!document.querySelector('#settings[open]')", 5000));
+  // プライバシーポリシーを開いて戻る：ページが読み直されても、広告の初期化・バナーの作成が二重にならないこと
+  const counts = () => js("({ initialize: +sessionStorage.getItem('lotojinja.ads.initialize') || 0, showBanner: +sessionStorage.getItem('lotojinja.ads.showBanner') || 0, resumeBanner: +sessionStorage.getItem('lotojinja.ads.resumeBanner') || 0 })");
+  const before = await counts();
+  await tap('#openSettings');
+  await waitFor("!!document.querySelector('#settings[open] a[href=\"privacy.html\"]')", 5000);
+  await tap('#settings a[href="privacy.html"]');
+  check('プライバシーポリシーが開く', await waitFor("location.pathname.endsWith('privacy.html') && document.body.textContent.includes('Google AdMob')", 15000));
+  await sleep(1500);
+  shot('privacy');
   await back();
-  check('戻るボタン：マイ番号 → ホームに戻る', await waitFor("!!document.querySelector('.result-head')", 5000));
+  check('戻るボタン：プライバシーポリシー → アプリの画面', await waitFor("!!document.querySelector('.result-head')", 15000));
+  await waitFor("getComputedStyle(document.documentElement).getPropertyValue('--ad-space').trim() !== '0px' && +sessionStorage.getItem('lotojinja.ads.resumeBanner') > 0", 20000);
+  const after = await counts();
+  check('戻ったあと、広告の初期化とバナーの作成は1回のまま（出し直しだけ）', after.initialize === 1 && after.showBanner === 1 && before.initialize === 1 && before.showBanner === 1 && after.resumeBanner > before.resumeBanner,
+    `前 ${JSON.stringify(before)} → 後 ${JSON.stringify(after)}`);
+  await sleep(1500);
   shot('back-home');
+  await checkBottom('プライバシーポリシーから戻ったホーム');
   await back();
   await sleep(2000);
   check('戻るボタン：ホームならアプリを閉じる', !new RegExp(PKG).test(resumed()), resumed().trim());
@@ -237,7 +281,7 @@ for (let attempt = 1; attempt <= 2; attempt++) {
       // 1回目の終わり方が分かるよう、ここまでのログを残す（クラッシュならアプリの問題、Google Play 開発者サービスの入れ替わりならエミュレーターの問題）
       try {
         const log = adb('logcat', '-d', '-v', 'time');
-        fs.writeFileSync(`${OUT}/emulator-logcat-attempt1.txt`, log);
+        fs.writeFileSync(`${OUT}/emulator-${TAG}-logcat-attempt1.txt`, log);
         const why = log.split('\n').filter(l => new RegExp(`FATAL EXCEPTION|Killing \\d+:${PKG.replace(/\./g, '\\.')}|Process ${PKG.replace(/\./g, '\\.')}.*has died|ANR in`).test(l));
         note(`1回目のアプリの終わり方：${why.slice(0, 5).join(' ／ ') || '（ログに記録なし）'}`);
         adb('logcat', '-c');
@@ -259,6 +303,8 @@ if (jsErrors.some(e => e && KNOWN.test(e))) note('参考：Capacitor 本体の�
 check('JS のエラー（例外・console.error）が無い', errs.length === 0, errs.slice(0, 5).join(' ／ '));
 note('--- console（warn/info/log の一部） ---');
 consoleLog.slice(0, 60).forEach(l => lines.push(l));
-fs.writeFileSync(`${OUT}/emulator-summary.txt`, `エミュレーターでの確認（${new Date().toISOString()}）\n${lines.join('\n')}\n`);
+let envLine = '';
+try { envLine = fs.readFileSync(`${OUT}/env.txt`, 'utf8').trim(); fs.unlinkSync(`${OUT}/env.txt`); } catch { /* 無い */ }
+fs.writeFileSync(`${OUT}/emulator-${TAG}-summary.txt`, `エミュレーターでの確認（${new Date().toISOString()}）${envLine ? `\n端末：${envLine}` : ''}\n${lines.join('\n')}\n`);
 try { ws?.close(); } catch { /* 閉じている */ }
 process.exit(failed ? 1 : 0);

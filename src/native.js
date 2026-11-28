@@ -34,11 +34,24 @@ export function onResume(handler) { App.addListener('resume', handler); }
 export function exitApp() { App.exitApp(); }
 
 // ---------- 広告 ----------
-const GAP = 8; // バナーと下のタブの間のすき間（押し間違いを防ぐ）
-const ads = { init: null, ready: false, want: false, shown: false, created: false, height: 0, privacyRequired: false };
+const GAP = 16; // バナーと下のタブの間のすき間（押し間違いを防ぐ。すき間は style.css で背景色に塗る）
+// プライバシーポリシーを開いて戻ると画面（ページ）が読み直されるが、広告の部品（ネイティブ）はそのまま残っている。
+// 初期化・同意の確認・バナーの作成を二重にしないよう、済んだことをこのページの外（sessionStorage：アプリを終了すると消える）に覚えておく
+const SS = 'lotojinja.ads.';
+const ss = {
+  get(k) { try { return JSON.parse(sessionStorage.getItem(SS + k)); } catch { return null; } },
+  set(k, v) { try { sessionStorage.setItem(SS + k, JSON.stringify(v)); } catch { /* 保存できない */ } },
+};
+const count = k => ss.set(k, (ss.get(k) || 0) + 1); // 確認用の回数（エミュレーターでの確認で二重になっていないかを見る）
+const ads = {
+  init: null, ready: false, want: false, shown: false,
+  created: ss.get('created') === true,             // このアプリの起動中にバナーを作ったか（読み直し後は resumeBanner で出す）
+  height: Number(ss.get('height')) || 0,           // 最後に分かったバナーの高さ（dp）
+  privacyRequired: ss.get('privacyRequired') === true,
+};
 const bannerMargin = () => (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tab-h')) || 64) + GAP;
 // 広告が出ている間は、画面の下に「広告の高さ＋すき間」だけ余白をあける（style.css の --ad-space）。
-// 一時的に隠す間（カットイン・ダイアログ）も余白は残し、画面がずれないようにする
+// 一時的に隠す間（カットイン・ダイアログ・リワード広告）も余白は残し、画面がずれないようにする
 function applySpace() {
   const h = ads.created ? ads.height : 0;
   document.documentElement.style.setProperty('--ad-space', h ? `${h + GAP}px` : '0px');
@@ -48,10 +61,10 @@ function syncBanner() {
   bannerQueue = bannerQueue.then(async () => {
     if (!ads.ready) return;
     if (ads.want && !ads.shown) {
-      if (ads.created) await AdMob.resumeBanner();
+      if (ads.created) { await AdMob.resumeBanner(); count('resumeBanner'); }
       else {
         await AdMob.showBanner({ adId: ADS.banner, adSize: 'ADAPTIVE_BANNER', position: 'BOTTOM_CENTER', margin: bannerMargin(), isTesting: IS_TEST_ADS });
-        ads.created = true;
+        ads.created = true; ss.set('created', true); count('showBanner');
       }
       ads.shown = true;
     } else if (!ads.want && ads.shown) {
@@ -60,32 +73,46 @@ function syncBanner() {
     }
     applySpace();
   }).catch(e => console.warn('バナー広告：', e && e.message));
+  return bannerQueue;
 }
-// バナーを出したい（true）・隠したい（false）。広告の準備ができていなければ、できたときに合わせる
-export function setBannerWanted(want) { ads.want = !!want; syncBanner(); }
+// バナーを出したい（true）・隠したい（false）。広告の準備ができていなければ、できたときに合わせる。隠し終わるのを待てる
+export function setBannerWanted(want) { ads.want = !!want; return syncBanner(); }
 
 // 起動時に1回：同意（UMP。日本では通常表示されない）→ 広告の初期化。子ども向けとしては扱わない（18歳以上向けのアプリ）
 export function initAds() {
   if (ads.init) return ads.init;
   ads.init = (async () => {
-    let canRequest = true;
-    try {
-      let info = await AdMob.requestConsentInfo();
-      if (info.isConsentFormAvailable && info.status === 'REQUIRED') info = await AdMob.showConsentForm();
-      canRequest = info.canRequestAds !== false;
-      // 地域によっては、同意をあとから変えられる入口（プライバシー設定）をアプリに置く必要がある（設定の画面に出す）
-      ads.privacyRequired = info.privacyOptionsRequirementStatus === 'REQUIRED';
-    } catch (e) { console.warn('広告の同意情報を取得できませんでした：', e && e.message); }
-    if (!canRequest) return false;
-    await AdMob.initialize({ initializeForTesting: false, tagForChildDirectedTreatment: false, tagForUnderAgeOfConsent: false });
-    AdMob.addListener('bannerAdSizeChanged', s => { ads.height = Math.max(0, Number(s && s.height) || 0); applySpace(); });
-    AdMob.addListener('bannerAdFailedToLoad', () => { ads.height = 0; applySpace(); });
+    if (!ss.get('initialized')) {
+      let canRequest = true;
+      try {
+        let info = await AdMob.requestConsentInfo();
+        if (info.isConsentFormAvailable && info.status === 'REQUIRED') info = await AdMob.showConsentForm();
+        canRequest = info.canRequestAds !== false;
+        // 地域によっては、同意をあとから変えられる入口（プライバシー設定）をアプリに置く必要がある（設定の画面に出す）
+        ads.privacyRequired = info.privacyOptionsRequirementStatus === 'REQUIRED';
+        ss.set('privacyRequired', ads.privacyRequired);
+      } catch (e) { console.warn('広告の同意情報を取得できませんでした：', e && e.message); }
+      if (!canRequest) return false;
+      await AdMob.initialize({ initializeForTesting: false, tagForChildDirectedTreatment: false, tagForUnderAgeOfConsent: false });
+      ss.set('initialized', true); count('initialize');
+    }
+    // イベントの受け取りはページごとに登録し直す（ページを読み直すと Capacitor が前の登録を消すため）
+    AdMob.addListener('bannerAdSizeChanged', s => {
+      const h = Math.max(0, Number(s && s.height) || 0);
+      // 隠したときに届く「高さ0」は無視する（余白が消えて画面がずれないように）
+      if (h > 0) { ads.height = h; ss.set('height', h); } else if (ads.want && ads.shown) ads.height = 0;
+      applySpace();
+    });
+    AdMob.addListener('bannerAdFailedToLoad', () => { ads.height = 0; ss.set('height', 0); applySpace(); });
     ads.ready = true;
+    applySpace();
     syncBanner();
     return true;
   })().catch(e => { console.warn('広告を準備できませんでした：', e && e.message); return false; });
   return ads.init;
 }
+// 確認用：このアプリの起動中に、初期化・バナーの作成・出し直しを何回したか
+export const adCounts = () => ({ initialize: ss.get('initialize') || 0, showBanner: ss.get('showBanner') || 0, resumeBanner: ss.get('resumeBanner') || 0 });
 
 // 広告のプライバシー設定（同意の変更）の入口が必要か・その画面を出す
 export const privacyOptionsRequired = () => ads.privacyRequired;

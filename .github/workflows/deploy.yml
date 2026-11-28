@@ -57,17 +57,36 @@ jobs:
         run: node tools/test.mjs
       - name: 変化があれば保存
         if: github.event_name != 'push'
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
         run: |
           git config user.name "lotojinja-bot"
           git config user.email "lotojinja-bot@users.noreply.github.com"
           git add src/data
           if git diff --cached --quiet; then echo "新しい回はありません"; exit 0; fi
           git commit -m "当せん番号を更新"
-          # ほかの push と重なると rejected になるので、取り込み直してから push し、失敗したら数回やり直す
+          # ほかの push と重なると rejected になるので、取り込み直してから push し、失敗したら数回やり直す。
+          # 同じ時間に定期タスク（当せん金の書き足し）が src/data を書きかえていて rebase が衝突したときは、
+          # 最新の main を取り直し、その上で取り込みからやり直す（どちらの変更も失わない）
+          redo_import() {
+            git fetch origin main && git reset --hard origin/main
+            if [ "$SCHEDULE" != '7 3,6,9 * * *' ]; then node tools/update-data.mjs loto || echo "::warning::ロト6・ロト7の取り込みに失敗"; fi
+            node tools/update-data.mjs hub || echo "::warning::ミニロト・ビンゴ5・ナンバーズの取り込みに失敗した種類があります"
+            if ! node tools/test.mjs > /tmp/redo-test.log 2>&1; then tail -n 40 /tmp/redo-test.log; git checkout -- src/data; echo "::error::取り込み直したあとのテストが通らないため、保存しません"; exit 1; fi
+            git add src/data
+            if git diff --cached --quiet; then echo "取り込み直したら新しい回はありませんでした（ほかの実行で保存済み）"; exit 0; fi
+            git commit -m "当せん番号を更新"
+          }
           for i in 1 2 3 4 5; do
             if git pull --rebase origin main && git push origin HEAD:main; then echo "保存しました"; exit 0; fi
-            git rebase --abort 2>/dev/null || true
-            echo "push に失敗（${i}回目）。少し待ってやり直します"; sleep $((i * 10))
+            if [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+              git rebase --abort || true
+              echo "src/data が衝突しました（${i}回目）。最新を取り直して取り込みからやり直します"
+              redo_import
+            else
+              echo "push に失敗（${i}回目）。少し待ってやり直します"
+            fi
+            sleep $((i * 10))
           done
           echo "::error::当せん番号の保存（push）に5回失敗しました"; exit 1
       - uses: actions/configure-pages@v5

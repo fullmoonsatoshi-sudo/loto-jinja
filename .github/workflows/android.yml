@@ -65,13 +65,21 @@ jobs:
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --target "$GITHUB_SHA" --title "Android ネイティブ版 $v" \
             --notes "Capacitor のネイティブ版。debug.apk は実機確認用（デバッグ署名）。release-unsigned.aab / .apk は署名前（Play には本番の鍵で署名したものを上げる）。emulator-* はエミュレーターでの確認結果。"
           gh release upload "$tag" out/* --clobber
+          # 以前の形式（API の番号なし）のエミュレーター画面を消す（今は emulator-api<番号>-* の形で置く）
+          gh api "repos/${{ github.repository }}/releases/tags/$tag" --jq '.assets[] | select(.name | test("^emulator-[0-9]|^emulator-(summary|logcat)")) | .id' | while read id; do gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$id"; done
 
   emulator:
-    # エミュレーターでデバッグ APK を起動し、同意 → ホーム → 神託（テスト広告）→ マイ番号 → 戻るボタン を adb で操作して画面を撮る。
-    # クラウドからはみずほ銀行の公式サイトが 403 になるので、予備（GitHub Pages）に切り替わる動きを確かめることになる（それで正しい）
+    # エミュレーターでデバッグ APK を起動し、同意 → ホーム → 神託（テスト広告 → 3回分）→ マイ番号 → 設定 → プライバシーポリシーと戻る → 戻るボタン
+    # を adb で操作して画面を撮る。Android 14（34）・15（35。edge-to-edge が強制）・16（36）の3つで確かめる。
+    # 公式（みずほ銀行）の CSV は、アプリの通信（WebView の User-Agent のネイティブ通信）ならクラウドからも読める（2026-11-27 に確認）。
+    # 予備（GitHub Pages）への切り替えは tools/test.mjs で確かめている
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [34, 35, 36]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -82,12 +90,12 @@ jobs:
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
-      - name: エミュレーターで確かめる
+      - name: エミュレーターで確かめる（Android API ${{ matrix.api }}）
         id: e1
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: ${{ matrix.api }}
           target: google_apis
           arch: x86_64
           profile: pixel_6
@@ -96,13 +104,13 @@ jobs:
           heap-size: 576M
           disable-animations: true
           emulator-options: -no-window -gpu swangle_indirect -noaudio -no-boot-anim -no-snapshot
-          script: bash tools/app/emulator-check.sh apk/*-debug.apk emulator-out
+          script: bash tools/app/emulator-check.sh apk/*-debug.apk emulator-out api${{ matrix.api }}
       - name: エミュレーターで確かめる（2回目。ソフトウェア描画のエミュレーターは動画広告のあとに応答しなくなることがあるため、1回だけやり直す）
         id: e2
         if: steps.e1.outcome == 'failure'
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: ${{ matrix.api }}
           target: google_apis
           arch: x86_64
           profile: pixel_6
@@ -111,7 +119,7 @@ jobs:
           heap-size: 576M
           disable-animations: true
           emulator-options: -no-window -gpu swangle_indirect -noaudio -no-boot-anim -no-snapshot
-          script: bash tools/app/emulator-check.sh apk/*-debug.apk emulator-out
+          script: bash tools/app/emulator-check.sh apk/*-debug.apk emulator-out api${{ matrix.api }}
       - name: 画面とログをリリースに置く
         if: always()
         env:
@@ -120,9 +128,9 @@ jobs:
           ls -la emulator-out || exit 0
           find emulator-out -type f -size 0 -delete  # 空のファイルは置けない
           tag="android-native-${{ needs.build.outputs.ver }}"
-          # 前の実行の画面（番号が違うもの）が残らないよう、先に emulator-* を消してから置く
-          gh api "repos/${{ github.repository }}/releases/tags/$tag" --jq '.assets[] | select(.name | startswith("emulator-")) | .id' | while read id; do gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$id"; done
+          # このAPIの前の実行の画面が残らないよう、先に emulator-api<番号>-* を消してから置く（ほかのAPIの分は消さない）
+          gh api "repos/${{ github.repository }}/releases/tags/$tag" --jq '.assets[] | select(.name | startswith("emulator-api${{ matrix.api }}-")) | .id' | while read id; do gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$id"; done
           gh release upload "$tag" emulator-out/* --clobber
       - name: 結果
         if: steps.e1.outcome == 'failure' && steps.e2.outcome != 'success'
-        run: echo "エミュレーターでの確認に2回とも失敗しました（emulator-summary.txt を見てください）"; exit 1
+        run: echo "エミュレーターでの確認に2回とも失敗しました（emulator-api${{ matrix.api }}-summary.txt を見てください）"; exit 1
