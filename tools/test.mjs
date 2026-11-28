@@ -1132,6 +1132,41 @@ t('予備のせりふ（app.js の CHARS）：福が来る・神託が届く・�
     const app = read('src/app.js');
     assert.ok(!/^import .*(native|sync)\.js/m.test(app), '静的 import していない');
     assert.match(app, /IS_APP \? import\('\.\/native\.js'\) : null/); assert.match(app, /IS_APP \? import\('\.\/sync\.js'\) : null/);
+    assert.match(app, /IS_APP \? import\('\.\/credits\.js'\) : null/); assert.ok(!/^import .*credits\.js/m.test(app));
+  });
+}
+
+
+// --- アプリ：神託の回数（広告1回で3回。src/credits.js） ---
+{
+  const C = await import('../src/credits.js');
+  const mem = () => { const m = new Map(); return { m, get: k => (m.has(k) ? JSON.parse(m.get(k)) : null), set: (k, v) => m.set(k, JSON.stringify(v)) }; };
+  const flow = async (st, ad, { yes = true } = {}) => { const log = []; const r = await C.requestOracle(st, { confirm: async () => (log.push('confirm'), yes), showAd: async () => (log.push('ad'), ad) }); return { ...r, log }; };
+  const st = mem();
+  const a1 = await flow(st, 'rewarded'), c1 = C.getCredits(st);
+  const a2 = await flow(st, 'rewarded'), a3 = await flow(st, 'rewarded'), c3 = C.getCredits(st);
+  const a4 = await flow(st, 'rewarded', { yes: false }), c4 = C.getCredits(st);
+  t('神託の回数：広告1回で3回分。1回目は広告（確認あり）、2・3回目は確認も広告もなし', () => {
+    assert.equal(C.CREDITS_PER_AD, 3);
+    assert.deepEqual([a1.go, a1.via, a1.log], [true, 'ad', ['confirm', 'ad']]); assert.equal(c1, 2);
+    assert.deepEqual([a2.go, a2.via, a2.log], [true, 'credit', []]); assert.deepEqual([a3.go, a3.via, a3.log], [true, 'credit', []]); assert.equal(c3, 0);
+  });
+  t('神託の回数：4回目（0回）はまた確認。「やめる」なら神託なし・回数そのまま', () => { assert.deepEqual([a4.go, a4.reason, a4.log], [false, 'declined', ['confirm']]); assert.equal(c4, 0); });
+  const st2 = mem();
+  const n1 = await flow(st2, 'unavailable'), n1c = C.getCredits(st2);
+  const x1 = await flow(st2, 'cancelled'), x1c = C.getCredits(st2);
+  const thrown = await C.requestOracle(st2, { confirm: async () => true, showAd: async () => { throw new Error('x'); } });
+  t('神託の回数：広告を用意できないときは広告なしで1回出す（回数は増やさない・減らさない）', () => { assert.deepEqual([n1.go, n1.via], [true, 'noad']); assert.equal(n1c, 0); assert.deepEqual([thrown.go, thrown.via], [true, 'noad']); });
+  t('神託の回数：途中で閉じたら神託は出さず、回数も増えない', () => { assert.deepEqual([x1.go, x1.reason], [false, 'cancelled']); assert.equal(x1c, 0); });
+  const st3 = mem(); C.addCredits(st3, 2);
+  const u1 = await flow(st3, 'unavailable'), u1c = C.getCredits(st3);
+  t('神託の回数：残りがあれば広告の状態によらず1回使う', () => { assert.deepEqual([u1.via, u1.log], ['credit', []]); assert.equal(u1c, 1); });
+  t('神託の回数：端末に保存される（同じ保存場所から読み直しても同じ）・壊れた値は0回', () => {
+    const s = mem(); C.addCredits(s); assert.equal(JSON.parse(s.m.get(C.CREDITS_KEY)), 3);
+    const again = { get: s.get, set: s.set }; assert.equal(C.getCredits(again), 3);
+    for (const bad of ['3', -1, 1.5, 1000, null, { a: 1 }]) { const b = mem(); b.set(C.CREDITS_KEY, bad); assert.equal(C.getCredits(b), 0, JSON.stringify(bad)); }
+    assert.equal(C.getCredits({ get() { throw new Error('x'); }, set() {} }), 0);
+    assert.equal(C.useCredit(mem()), false);
   });
 }
 

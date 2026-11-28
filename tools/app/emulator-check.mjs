@@ -153,7 +153,7 @@ async function main() {
   check('神託の画面', await waitFor("!!document.querySelector('#doOracle')"));
   shot('oracle');
   await tap('#doOracle');
-  check('神託：「広告を見ると神託をいただけます」の確認', await waitFor("document.querySelector('#confirm[open]')?.textContent.includes('広告を見ると神託をいただけます')", 5000));
+  check('神託：残り0回で押すと「広告を見ると神託を3回いただけます」の確認', await waitFor("document.querySelector('#confirm[open]')?.textContent.includes('広告を見ると神託を3回いただけます')", 5000));
   shot('oracle-confirm');
   await tap('#confirm [data-ans=yes]');
   // 広告の画面（AdActivity）が出るのを待つ
@@ -178,6 +178,27 @@ async function main() {
   note(`リワード広告の結果：${consoleLog.filter(l => /リワード広告/.test(l)).join(' ／ ') || (adShown ? '報酬あり（最後まで見た）' : '')}`);
   await sleep(1500);
   shot('oracle-result');
+  const credits = () => js("document.querySelector('#oracleCredits')?.textContent.replace(/\\s+/g, '') || ''");
+  if (adShown) {
+    check('広告を最後まで見たら神託が3回分（1回使って「あと2回」）', /あと2回/.test(await credits()), await credits());
+    // 2回目・3回目：確認も広告もなく、すぐ神託
+    for (const left of [1, 0]) {
+      await js("window.scrollTo(0, 0)");
+      await tap('#doOracle');
+      const noConfirm = !(await js("!!document.querySelector('#confirm[open]')"));
+      const ok = await waitFor(`!document.querySelector('.cutin') && /あと${left}回/.test(document.querySelector('#oracleCredits')?.textContent.replace(/\\s+/g, '') || '')`, 30000);
+      check(`残りがあれば確認・広告なしですぐ神託（あと${left}回）`, noConfirm && ok && !/AdActivity/.test(resumed()), await credits());
+    }
+    await js("document.querySelector('#doOracle').scrollIntoView({ block: 'center' })");
+    await sleep(800);
+    shot('oracle-credits-0');
+    // 4回目：また確認（やめる）
+    await tap('#doOracle');
+    check('4回目（残り0回）はまた「広告を見ると神託を3回いただけます」の確認', await waitFor("document.querySelector('#confirm[open]')?.textContent.includes('3回いただけます')", 5000));
+    shot('oracle-confirm-again');
+    await tap('#confirm [data-ans=no]');
+    check('「やめる」なら広告も神託も出ない', await waitFor("!document.querySelector('#confirm[open]')", 5000) && !/AdActivity/.test(resumed()));
+  } else note('広告が出なかったので、回数（3回）の確認は飛ばします（広告なしでは回数は増えない仕様）');
 
   // マイ番号
   await tap('[data-tab=mine]');

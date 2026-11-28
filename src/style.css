@@ -303,3 +303,6 @@ dialog::backdrop { background: rgba(30, 20, 15, .45); }
 a.tap-link { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; margin-left: -8px; color: var(--shu); font-weight: 700; }
 /* アプリ：最新の結果を取得できなかったときの控えめな一言 */
 .fail-note { display: block; margin-top: 4px; font-size: 14px; font-weight: 400; color: var(--ink-soft); }
+/* アプリ：神託の残りの回数（ボタンのすぐ下） */
+.credit-note { margin: 8px 0 0; text-align: center; font-size: 15px; color: var(--ink-soft); }
+.credit-note b { color: var(--shu); font-size: 18px; margin: 0 2px; }

@@ -31,7 +31,13 @@ Web 版（GitHub Pages）はこれまでどおり `src/` をそのまま公開�
 
 ## 3. 広告（AdMob：@capacitor-community/admob）
 - **バナー**：画面下のタブ（ホーム・神託…）の真上。タブとの間に 8px のすき間。広告が出ている間は画面の下に「広告の高さ＋8px」の余白をあけ、内容やタブが隠れないようにする（CSS の `--ad-space`）。18歳以上の確認の前・ダイアログ・カットイン・リワード広告の間は隠す。
-- **リワード**：「神託をいただく」→ 確認「広告を見ると神託をいただけます」［広告を見る］［やめる］→ 最後まで見たら（プラグインの報酬イベント `onRewardedVideoAdReward`）ご祈祷カットイン → 神託。途中で閉じたら神託は出さず、その旨を表示。**広告を読み込めない・用意できない（通信なし・在庫なし）ときは、広告なしで神託を出す**。
+- **リワード（神託の回数）**：2026-11-28 オーナー決定。リワード広告を1回最後まで見ると **神託を3回** いただける（`src/credits.js`。報酬はプラグインの報酬イベント `onRewardedVideoAdReward` で判定し、回数はアプリ側で固定の3回）。
+  - 「神託をいただく」を押すたびに1回使う。残りがあるあいだは確認も広告もなしで、すぐご祈祷カットイン → 神託。
+  - 残りの回数は端末に保存（localStorage `lotojinja.oracle.credits`。アプリを閉じても残る・期限なし）。ボタンのすぐ下に「神託 あと○回」を出す。
+  - 0回のときに押すと確認「広告を見ると神託を3回いただけます」［広告を見る］［やめる］→ 最後まで見たら3回もらって1回使う（残り2回）→ 神託。
+  - 途中で閉じたら回数は増えず、神託も出さない（その旨を表示）。
+  - **広告を読み込めない・用意できない（通信なし・在庫なし）ときは、回数を変えずに広告なしで神託を1回出す**（使えなくなる状態を作らない）。
+  - Web 版（ブラウザ）は広告も回数の表示もなし（今までどおり何度でも）。
 - **同意（UMP）**：起動時に `requestConsentInfo` → 必要なら `showConsentForm`（日本では通常表示されない）。地域によって「プライバシー設定の入口」が必要と返ってきたとき（`privacyOptionsRequirementStatus: REQUIRED`。米国の GitHub Actions のエミュレーターではそうなった）は、設定の画面に「広告のプライバシー設定」ボタンを出す。
 - 子ども向けとして扱わない（`tagForChildDirectedTreatment: false`、`tagForUnderAgeOfConsent: false`）。
 - Web 版（ブラウザ）では広告を出さない。
@@ -71,7 +77,7 @@ export const ADS = {
   - `loto-jinja-<版>-debug.apk`：デバッグ署名（実機確認用。`android/app/debug.keystore` は Android 標準のデバッグ用の鍵で、毎回同じ鍵にして上書きインストールできるようにしたもの。Play の署名とは無関係）
   - `loto-jinja-<版>-release-unsigned.aab`／`-release-unsigned.apk`：署名なし。**本番の署名鍵は GitHub に置かない**（CEO が手元で署名する。手順は `docs/owner-handoff.md`）
   - `loto-jinja-<版>-SHA256SUMS.txt`
-  - `emulator-NN-*.png`・`emulator-summary.txt`・`emulator-logcat.txt`：エミュレーター（Android 14）で、起動 → 同意 → ホーム → 神託（テスト広告）→ マイ番号 → 戻るボタン を adb で操作した画面とログ（`tools/app/emulator-check.sh`・`emulator-check.mjs`）。クラウドからはみずほ銀行の公式サイトが 403 になるので、エミュレーターでは**予備（GitHub Pages）に切り替わる**動きを確かめる。
+  - `emulator-NN-*.png`・`emulator-summary.txt`・`emulator-logcat.txt`：エミュレーター（Android 14）で、起動 → 同意 → ホーム → 神託（テスト広告を最後まで見る → あと2回 → 2回目・3回目は広告なし → 4回目でまた確認）→ マイ番号 → 戻るボタン を adb で操作した画面とログ（`tools/app/emulator-check.sh`・`emulator-check.mjs`）。クラウドからはみずほ銀行の公式サイトが 403 になるので、エミュレーターでは**予備（GitHub Pages）に切り替わる**動きを確かめる。
 - 手元で作るとき（Android Studio がある場合）：`npm ci` → `npm run sync` → `android/` を Android Studio で開く。
 
 ## 6. ファイル
@@ -81,6 +87,7 @@ export const ADS = {
 | `src/csv.js` | 公式CSV（回別・一覧）の読み取り（アプリと tools/ で共通） |
 | `src/native.js` | ネイティブ通信・戻るボタン・広告 |
 | `src/ads-config.js` | 広告のID（★本番に切り替えるときはここだけ） |
+| `src/credits.js` | 神託の回数（広告1回で3回・保存・0回のときの確認・広告なしのとき） |
 | `capacitor.config.json` | Capacitor の設定 |
 | `android/` | Android のプロジェクト（`npx cap add android` で作り、名前・版・広告ID・向き・色・アイコンを設定） |
 | `tools/app/build-web.mjs` | `src/` → `www/`（`sw.js` と README を除き、`capacitor.js` を読み込む1行を足す） |

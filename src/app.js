@@ -11,6 +11,8 @@ import { chooseLine, homeSituation, nextLineChange, linesUrl } from './lines.js'
 const IS_APP = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
 const syncMod = IS_APP ? import('./sync.js') : null;
 const nativeMod = IS_APP ? import('./native.js') : null;
+const creditsMod = IS_APP ? import('./credits.js') : null; // 神託の回数（広告1回で3回）
+let oracleCredits = null; // アプリ：神託の残りの回数（画面の表示用）
 
 // ---------- キャラクター ----------
 // せりふは src/lines/<キャラID>.json から出す（選び方は lines.js、仕様は docs/lines-spec.md）。
@@ -352,6 +354,7 @@ function renderOracle() {
       </div>
       ${o.adNote ? `<p class="notice mt16" role="status">${o.adNote}</p>` : ''}
       <button class="btn mt16" type="button" id="doOracle" ${o.praying || o.adBusy ? 'disabled' : ''}>${o.praying ? 'お祈り中…' : o.adBusy ? '広告を読み込んでいます…' : '神託をいただく'}</button>
+      ${IS_APP && oracleCredits != null ? `<p class="credit-note" id="oracleCredits">${oracleCredits ? `神託 あと<b>${oracleCredits}</b>回` : '神託 あと<b>0</b>回（広告を見ると3回いただけます）'}</p>` : ''}
       <p class="disclaimer">神託は過去のデータを使ったお楽しみ機能です。抽せんは毎回まったくの偶然で決まるため、当せん確率は上がりません。<br><a class="tap-link" href="privacy.html">プライバシーポリシー</a></p>
     </section>
     ${tickets ? `<section class="card" id="oracleResult"><h2>${g.name}の神託</h2>${tickets}
@@ -493,23 +496,34 @@ async function doOracle() {
   if (o.result && state.tab === 'oracle') $('#oracleResult')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-// アプリ：神託の前にリワード広告。最後まで見たら神託、途中で閉じたら神託は出さない。
-// 広告を用意できないとき（通信なし・在庫なし）は、広告なしで神託を出す（使えなくなる状態を作らない）
+// アプリ：神託の回数とリワード広告（src/credits.js）。
+// 残りがあれば1回使ってすぐ神託。0回なら確認 → 広告を最後まで見たら3回もらって1回使う → 神託。途中で閉じたら神託は出さない。
+// 広告を用意できないとき（通信なし・在庫なし）は、回数を変えずに広告なしで神託を1回出す（使えなくなる状態を作らない）
 async function oracleWithAd() {
   const o = state.oracle;
   if (o.praying || o.adBusy) return;
   o.adNote = '';
-  if (!(await confirmDialog('広告を見ると神託をいただけます。', '広告を見る', 'やめる'))) { render(); return; }
-  o.adBusy = true; render();
-  const N = await nativeMod;
-  let r = 'unavailable';
-  try { r = await N.showRewarded(); } catch (e) { console.warn('リワード広告：', e && e.message); }
-  o.adBusy = false;
-  updateBanner();
-  console.info(`リワード広告：${r}`); // rewarded（最後まで見た）／cancelled（途中で閉じた）／unavailable（用意できない）
-  if (r === 'rewarded') return doOracle();
-  if (r === 'unavailable') { toast('広告を用意できなかったので、そのまま神託をお出しします'); return doOracle(); }
-  o.adNote = '広告が最後まで再生されなかったため、神託はお出ししませんでした。もう一度「神託をいただく」を押すと、広告から始まります。';
+  const C = await creditsMod;
+  const res = await C.requestOracle(appStore, {
+    confirm: () => confirmDialog(`広告を見ると神託を${C.CREDITS_PER_AD}回いただけます。`, '広告を見る', 'やめる'),
+    showAd: async () => {
+      o.adBusy = true; render();
+      const N = await nativeMod;
+      let r = 'unavailable';
+      try { r = await N.showRewarded(); } catch (e) { console.warn('リワード広告：', e && e.message); }
+      o.adBusy = false;
+      updateBanner();
+      console.info(`リワード広告：${r}`); // rewarded（最後まで見た）／cancelled（途中で閉じた）／unavailable（用意できない）
+      return r;
+    },
+  });
+  oracleCredits = C.getCredits(appStore);
+  console.info(`神託：${res.go ? res.via : res.reason}（残り${oracleCredits}回）`);
+  if (res.go) {
+    if (res.via === 'noad') toast('広告を用意できなかったので、そのまま神託をお出しします');
+    return doOracle();
+  }
+  if (res.reason === 'cancelled') o.adNote = '広告が最後まで再生されなかったため、神託はお出ししませんでした。もう一度「神託をいただく」を押すと、広告から始まります。';
   render();
 }
 
@@ -713,7 +727,7 @@ function openSettings() {
       <li>くじは無理のない範囲で楽しみましょう。</li>
       ${IS_APP ? `<li>当せん番号の出典：みずほ銀行の公式発表。アプリが公式サイトの当せん番号のCSVを直接読み込みます（読めないときは、このアプリの配信元（GitHub Pages）のデータを使います）。アプリに入っている過去の回のうち、ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4は公開データ lotto-data-hub（MITライセンス。元データは loto-life.net）を元にしています。正式な結果は公式発表でご確認ください。取り込み済み：<span id="dataStatus">${dataStatus()}</span>まで</li>
       <li>登録した番号や誕生日、取り込んだ当せん番号はこの端末の中だけに保存されます。</li>
-      <li>このアプリには広告が表示されます。神託は広告を見るといただけます（広告を用意できないときは、広告なしでいただけます）。</li>
+      <li>このアプリには広告が表示されます。広告（動画など）を1回最後まで見ると、神託を3回いただけます（残りの回数はこの端末に保存。広告を用意できないときは、広告なしで神託をいただけます）。</li>
       <li id="adPrivacyItem" hidden><button type="button" class="btn small sub" id="adPrivacy">広告のプライバシー設定</button></li>` : `<li>当せん番号の出典：ロト6・ロト7はみずほ銀行の公式発表（公開データ jjayck/lotoanaba-data を経由し、公式と照合して取り込み）。ミニロト・ビンゴ5・ナンバーズ3・ナンバーズ4は公開データ lotto-data-hub（MITライセンス。元データは loto-life.net）を元に取り込み、結果は抽せんの翌朝〜午前中に反映されます。正式な結果は公式発表でご確認ください。取り込み済み：<span id="dataStatus">${dataStatus()}</span>まで</li>
       <li>登録した番号や誕生日はこの端末の中だけに保存されます。</li>`}
       <li><a class="tap-link" href="privacy.html">プライバシーポリシー</a></li>
@@ -873,6 +887,7 @@ function onBack() {
 }
 if (IS_APP) {
   document.documentElement.classList.add('in-app');
+  creditsMod.then(C => { oracleCredits = C.getCredits(appStore); if (state.tab === 'oracle') render(); });
   nativeMod.then(N => {
     N.onBackButton(onBack);
     N.onResume(() => syncNow());
