@@ -120,6 +120,8 @@ jobs:
           ls -la emulator-out || exit 0
           find emulator-out -type f -size 0 -delete  # 空のファイルは置けない
           tag="android-native-${{ needs.build.outputs.ver }}"
+          # 前の実行の画面（番号が違うもの）が残らないよう、先に emulator-* を消してから置く
+          gh api "repos/${{ github.repository }}/releases/tags/$tag" --jq '.assets[] | select(.name | startswith("emulator-")) | .id' | while read id; do gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$id"; done
           gh release upload "$tag" emulator-out/* --clobber
       - name: 結果
         if: steps.e1.outcome == 'failure' && steps.e2.outcome != 'success'
