@@ -6,6 +6,7 @@ set -uo pipefail
 APK=$(ls $1 | head -1)
 OUT=$2
 PKG=io.github.fullmoonsatoshisudo.lotojinja
+rm -rf -- "${OUT:?}"  # 前の回の結果を消す（2回目のやり直しのとき）
 mkdir -p "$OUT"
 adb wait-for-device
 adb shell settings put global window_animation_scale 0 || true
@@ -15,10 +16,16 @@ for i in $(seq 1 30); do [ "$(adb shell getprop sys.boot_completed | tr -d '\r')
 sleep 60
 timeout 300 adb install -r "$APK"
 adb logcat -c
+# ログは最初から別に書き出しておく（あとでエミュレーターが応答しなくなっても残るように）
+adb logcat -v time > "$OUT/emulator-logcat-live.txt" 2>/dev/null &
+LOGPID=$!
 adb shell am start -n "$PKG/.MainActivity"
 timeout 1500 node tools/app/emulator-check.mjs "$OUT" "$PKG"
 code=$?
+kill $LOGPID 2>/dev/null || true
 timeout 120 adb logcat -d -v time > "$OUT/emulator-logcat.txt" || echo "logcat を読めませんでした（エミュレーターが応答しない）" >> "$OUT/emulator-summary.txt"
+# 読めなかったときは、書き出しておいたログを使う
+if [ ! -s "$OUT/emulator-logcat.txt" ]; then mv "$OUT/emulator-logcat-live.txt" "$OUT/emulator-logcat.txt"; else rm -f "$OUT/emulator-logcat-live.txt"; fi
 # クラッシュ・JS のエラーがログに無いこと
 if grep -E "FATAL EXCEPTION|E/AndroidRuntime" "$OUT/emulator-logcat.txt" | grep -v "^--" > "$OUT/crash.txt"; then
   if [ -s "$OUT/crash.txt" ]; then echo "クラッシュがありました"; cat "$OUT/crash.txt"; code=1; fi
